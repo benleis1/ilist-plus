@@ -15,10 +15,15 @@
 ;; Copyright (C) 2026 Benjamin Leis
 
 ;; Author:  Benjamin Leis <benleis1@gmail.com>
+
 ;; Maintainer: Benjamin Leis <benleis1@gmail.com>
+
 ;; Version: 0.0.1
+
 ;; Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
+
 ;; Keywords: convenience outlines tools
+
 ;; URL: https://github.com/benleis1/ilist-plus
 
 ;; Imenu and imenu-list extensions  **BETA release**

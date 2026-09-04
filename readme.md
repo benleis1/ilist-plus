@@ -15,10 +15,14 @@ o888o o888o o888o 8""888P'   "888"     88
 Copyright (C) 2026 Benjamin Leis
 
 Author:  Benjamin Leis <benleis1@gmail.com>
+
 Maintainer: Benjamin Leis <benleis1@gmail.com>
+
 Version: 0.0.1
+
 Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
 Keywords: convenience outlines tools
+
 URL: https://github.com/benleis1/ilist-plus
 
 Imenu and imenu-list extensions  **BETA release**
@@ -74,6 +78,7 @@ Included here are all of the extensions off of Imenu-List
   - [Demo video](#demo-video)
 - [Code:](#code)
 - [General UI changes](#general-ui-changes)
+  - [ilist-plus--modus-color](#ilist-plus--modus-color)
   - [ilist-plus--build-mode-line-format](#ilist-plus--build-mode-line-format)
   - [ilist-plus--set-marker-at-point](#ilist-plus--set-marker-at-point)
   - [ilist-plus-update-fold-markers](#ilist-plus-update-fold-markers)
@@ -129,6 +134,10 @@ Included here are all of the extensions off of Imenu-List
 
 # General UI changes
 ```
+(defgroup ilist-plus nil
+  "Extended imenu-list support."
+  :group 'convenience)
+
 (defvar ilist-plus-fixed-font (face-attribute 'default :family))
 ```
 
@@ -136,7 +145,19 @@ Be care to set the font family to one with nerd fonts so the icon renders.
 ```
 (defface ilist-plus-icon-face
   `((t (:inherit mode-line-buffer-id :family ,ilist-plus-fixed-font)))
-  "Face for the icon glyphs in `imenu-list-mode-line-format'.")
+  "Face for the icon glyphs in `imenu-list-mode-line-format'."
+  :group 'ilist-plus)
+```
+
+## ilist-plus--modus-color
+`modus-themes' is optional,
+fall back to a plain color when it isn't loaded, since `defface' below
+evaluates this at package-load time, not lazily.
+```
+(defun ilist-plus--modus-color (name overrides &optional fallback)
+  (if (fboundp 'modus-themes-get-color-value)
+      (modus-themes-get-color-value name overrides)
+    (or fallback "black")))
 
 (defvar ilist-plus-default-window-map
   (let ((map (make-sparse-keymap)))
@@ -184,17 +205,19 @@ default; init.el overrides this with the richer
 I need a more visible highlight for the current block
 ```
 (defface ilist-plus-hl-face
-  `((t (:foreground ,(modus-themes-get-color-value 'fg-hl-imenu t)  :weight bold)))
+  `((t (:foreground ,(ilist-plus--modus-color 'fg-hl-imenu t) :weight bold)))
   "A new custom face for highlighting."
-  :group 'my-custom-group)
+  :group 'ilist-plus)
 ```
 
 ## ilist-plus--set-marker-at-point
->Make the fold marker on the current line display as an arrow reflecting whether the block starting here is currently hidden.
+>Make the fold marker on the current line display as an arrow
+reflecting whether the block starting here is currently hidden.
 
 ```
 (defun ilist-plus--set-marker-at-point ()
-  "Make the fold marker on the current line display as an arrow reflecting whether the block starting here is currently hidden."
+  "Make the fold marker on the current line display as an arrow
+reflecting whether the block starting here is currently hidden."
   (save-excursion
     (beginning-of-line)
     (when (looking-at "^ *\\(\\+\\) ")
@@ -209,11 +232,13 @@ I need a more visible highlight for the current block
 ```
 
 ## ilist-plus-update-fold-markers
->Update every foldable entry's marker in the *Ilist* buffer to match its current hidden/shown state.
+>Update every foldable entry's marker in the *Ilist* buffer to
+match its current hidden/shown state.
 
 ```
 (defun ilist-plus-update-fold-markers ()
-  "Update every foldable entry's marker in the *Ilist* buffer to match its current hidden/shown state."
+  "Update every foldable entry's marker in the *Ilist* buffer to
+match its current hidden/shown state."
   (when (get-buffer imenu-list-buffer-name)
     (with-current-buffer imenu-list-buffer-name
       (ilist-plus--rebind-buttons)
@@ -346,11 +371,13 @@ the *Ilist* buffer is rebuilt for this buffer again.")
 ```
 
 ## ilist-plus-fold-below-depth
->Collapse imenu-list entries nested deeper than DEPTH (default `ilist-plus-autofold-depth'). Top-level entries are depth 1.
+>Collapse imenu-list entries nested deeper than DEPTH (default
+`ilist-plus-autofold-depth'). Top-level entries are depth 1.
 
 ```
 (defun ilist-plus-fold-below-depth (&optional depth)
-  "Collapse imenu-list entries nested deeper than DEPTH (default `ilist-plus-autofold-depth'). Top-level entries are depth 1."
+  "Collapse imenu-list entries nested deeper than DEPTH (default
+`ilist-plus-autofold-depth'). Top-level entries are depth 1."
   (interactive)
   (let ((depth (or depth ilist-plus-autofold-depth)))
     (with-current-buffer imenu-list-buffer-name
@@ -619,7 +646,7 @@ Idempotent -- cheap enough to call on every marker refresh."
 
 Refold
 ```
-(defun ilist-plus-after-imenu-list-toggle (&rest args)
+(defun ilist-plus-after-imenu-list-toggle (&rest _args)
   "Run custom code after `imenu-list-smart-toggle` occurs."
   (dolist (buf (buffer-list))
     (with-current-buffer buf
@@ -854,10 +881,6 @@ node-name helpers above: only defined when `treesit' is available.
       ;; final value
       result))
 
-  (setq ilist-plus-first-level-ts-filters '(("Classes" "class_declaration")
-                                    ("Interfaces" "interface_declaration")
-                                    ("Records" "record_declaration")))
-
   ;; Main routine that walks top level of the grammar tree and constructs imenu nodes
   ;; to turn on - (setq imenu-create-index-function 'ilist-plus-java-ts-index)
   (defun ilist-plus-java-ts-index (&optional buffer)
@@ -867,7 +890,6 @@ node-name helpers above: only defined when `treesit' is available.
       (let ((classes '())
             (interfaces '())
             (enums '())
-            (class_declaration '())
             (subresults '())
             (result '()))
 
@@ -1271,17 +1293,20 @@ property).
 
 ```
 (defface ilist-plus-modified-face
-  `((t (:background ,(modus-themes-get-color-value 'bg-changed))))
-  "Face for imenu-list entries covering a source section with a pending `diff-hl' change."
-  :group 'my-custom-group)
+  `((t (:background ,(ilist-plus--modus-color 'bg-changed nil "yellow"))))
+  "Face for imenu-list entries covering a source section with a
+pending `diff-hl' change."
+  :group 'ilist-plus)
 ```
 
 ## ilist-plus--flatten-entries
->Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order `imenu-list' displays them.
+>Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order
+`imenu-list' displays them.
 
 ```
 (defun ilist-plus--flatten-entries (index-alist depth)
-  "Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order `imenu-list' displays them."
+  "Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order
+`imenu-list' displays them."
   (apply #'nconc
          (mapcar (lambda (entry)
                    (cons (cons entry depth)
