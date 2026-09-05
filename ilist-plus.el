@@ -60,6 +60,7 @@
 ;;             	      (setq-local ilist-plus-autofold-depth 2)
 ;;                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ;; ```
+;; 3. Turn on the side window by calling `imenu-list-smart-toggle`
 
 ;; ## Sample Screen
 ;; ![sample screen](./sample.png)
