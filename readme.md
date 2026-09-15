@@ -14,6 +14,8 @@ o888o o888o o888o 8""888P'   "888"     88
 
 Copyright (C) 2026 Benjamin Leis
 
+SPDX-License-Identifier: MIT
+
 Author:  Benjamin Leis <benleis1@gmail.com>
 
 Maintainer: Benjamin Leis <benleis1@gmail.com>
@@ -35,6 +37,7 @@ UI:
 * menu entry sorting (alphabetical/postion etc.)
 * custom mode-line formatting
 * a new face for highlighting the current location
+* default autofolding levels
 
 Semantics:
 * integration with diff-hl to show whole modified entries
@@ -56,7 +59,12 @@ Semantics:
  (use-package ilist-plus
    :vc (:url "https://github.com/benleis1/ilist-plus"))
 ```
-2. Hookup the elisp and/or java indexers (ilist-plus-elisp-index and ilist-plus-java-ts-index)
+2. Turn on `ilist-plus-mode` (a global minor mode) to install its
+   mode-line format, hooks, and advice on `imenu-list`.
+```
+(ilist-plus-mode 1)
+```
+3. Hookup the elisp and/or java indexers (ilist-plus-elisp-index and ilist-plus-java-ts-index)
   in a hook with a default autofold depth.
 
 ```
@@ -65,7 +73,7 @@ Semantics:
             	      (setq-local ilist-plus-autofold-depth 2)
                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ```
-3. Turn on the side window by calling `imenu-list-smart-toggle`
+4. Turn on the side window by calling `imenu-list-smart-toggle`
 
 ## Sample Screen
 ![sample screen](./sample.png)
@@ -95,6 +103,7 @@ Semantics:
   - [ilist-plus--folded-p](#ilist-plus--folded-p)
   - [ilist-plus--subtree-end](#ilist-plus--subtree-end)
   - [ilist-plus--line-span](#ilist-plus--line-span)
+  - [ilist-plus--major-mode-setup](#ilist-plus--major-mode-setup)
   - [ilist-plus-fold-below-depth](#ilist-plus-fold-below-depth)
   - [ilist-plus--flatten-paths](#ilist-plus--flatten-paths)
   - [ilist-plus--record-folded-paths](#ilist-plus--record-folded-paths)
@@ -117,6 +126,7 @@ Semantics:
   - [ilist-plus-sort-alphabetically](#ilist-plus-sort-alphabetically)
   - [ilist-plus-switch-sort](#ilist-plus-switch-sort)
 - [Elisp custom header handling](#elisp-custom-header-handling)
+  - [ilist-plus--elisp-mode-setup](#ilist-plus--elisp-mode-setup)
   - [ilist-plus-elisp-flatten-raw](#ilist-plus-elisp-flatten-raw)
   - [ilist-plus-elisp-back-over-comments](#ilist-plus-elisp-back-over-comments)
   - [ilist-plus-elisp-parse-and-tag-ranges](#ilist-plus-elisp-parse-and-tag-ranges)
@@ -131,13 +141,18 @@ Semantics:
   - [ilist-plus--entry-position](#ilist-plus--entry-position)
   - [ilist-plus--current-entry](#ilist-plus--current-entry)
 - [VC Highlighting](#vc-highlighting)
+  - [ilist-plus--theme-change-setup](#ilist-plus--theme-change-setup)
   - [ilist-plus--flatten-entries](#ilist-plus--flatten-entries)
   - [ilist-plus--section-modified-p](#ilist-plus--section-modified-p)
   - [ilist-plus--entry-range](#ilist-plus--entry-range)
   - [ilist-plus--mark-modified](#ilist-plus--mark-modified)
   - [ilist-plus-highlight-modified-entries](#ilist-plus-highlight-modified-entries)
+  - [ilist-plus--update-hook-setup](#ilist-plus--update-hook-setup)
 - [Org mode optimization. Its not completely clear if its needed.](#org-mode-optimization-its-not-completely-clear-if-its-needed)
   - [ilist-plus--skip-org-rescan-if-unmodified](#ilist-plus--skip-org-rescan-if-unmodified)
+- [Global minor mode](#global-minor-mode)
+  - [ilist-plus-mode--enable](#ilist-plus-mode--enable)
+  - [ilist-plus-mode--disable](#ilist-plus-mode--disable)
 - [ilist-plus.el ends here](#ilist-plusel-ends-here)
 
 <!-- markdown-toc end -->
@@ -231,13 +246,6 @@ modeline.el is loaded) is supplied.")
      help-echo "mouse-1: close the window"
      mouse-face mode-line-highlight
      local-map ,(or window-map ilist-plus-default-window-map))))
-```
-
-Simplified buffer name with icon for the menu bar. Self-contained
-default; init.el overrides this with the richer
-`my-modeline-dedicated-window-map' once modeline.el has loaded.
-```
-(setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format))
 
 (defconst ilist-plus-collapsed-marker "▶"
   "Marker shown before a folded (hidden) imenu-list entry.")
@@ -375,23 +383,21 @@ entry, of N total)."
                   (point))))))
 ```
 
-Hook for setup of the mode,
+## ilist-plus--major-mode-setup
+Setup for the mode, installed on `imenu-list-major-mode-hook' by
+`ilist-plus-mode' (see the end of this file). Also removes
+hideshow's own activation there -- we fold via our own overlays
+above instead.
 ```
-(add-hook 'imenu-list-major-mode-hook
-          (lambda ()
-            ;; Wire in my custom highlight face.
-            (setq-local face-remapping-alist '((hl-line ilist-plus-hl-face)))
-            ;; High enough priority for this face so it takes precedence
-            ;; unlike normal I don't want to preserve the underlying foreground color
-            (setq-local hl-line-overlay-priority 10)
-            ;; Setup the custom invisibility spec we use for folding.
-            (add-to-invisibility-spec ilist-plus--invisible-spec)
-            (setq-local line-move-ignore-invisible t)))
-```
-
-hideshow's own activation is no longer wanted we fold via our own overlays above instead.
-```
-(remove-hook 'imenu-list-major-mode-hook #'hs-minor-mode)
+(defun ilist-plus--major-mode-setup ()
+  ;; Wire in my custom highlight face.
+  (setq-local face-remapping-alist '((hl-line ilist-plus-hl-face)))
+  ;; High enough priority for this face so it takes precedence
+  ;; unlike normal I don't want to preserve the underlying foreground color
+  (setq-local hl-line-overlay-priority 10)
+  ;; Setup the custom invisibility spec we use for folding.
+  (add-to-invisibility-spec ilist-plus--invisible-spec)
+  (setq-local line-move-ignore-invisible t))
 ```
 
  Autofolding
@@ -698,8 +704,6 @@ Refold
 	(setq ilist-plus--folded-once nil))
       (when (local-variable-p 'ilist-plus--folded-paths)
 	(setq ilist-plus--folded-paths nil)))))
-
-(advice-add 'imenu-list-smart-toggle :before #'ilist-plus-after-imenu-list-toggle)
 ```
 
 ## ilist-plus-reveal-current-entry
@@ -715,8 +719,6 @@ visible header line instead so the highlight bar actually shows.
         (goto-char (previous-single-char-property-change (point) 'invisible))
         (beginning-of-line)
         (hl-line-highlight)))))
-
-(advice-add 'imenu-list--show-current-entry :after #'ilist-plus-reveal-current-entry)
 ```
 
 # Hierarchical treesitter tree parsing
@@ -967,22 +969,23 @@ node-name helpers above: only defined when `treesit' is available.
 
 # Elisp custom header handling
 
-Add additional expressions to baseline parsing in an elisp hook.
-This has to be done after elisp loads each time.
+## ilist-plus--elisp-mode-setup
+Add additional expressions to baseline parsing in an elisp hook.  This has to
+be done after elisp loads each time.  `ilist-plus-elisp-index-by-position'
+relies on these entries being present in `imenu-generic-expression'.
 ```
-(add-hook 'emacs-lisp-mode-hook
-                 (lambda ()
-		   (add-to-list 'imenu-generic-expression
-				(list "Use-package"
-				      (concat "^\\s-*(use-package\\s-+\\("
-					      lisp-mode-symbol-regexp "\\)")
-				      1))
+(defun ilist-plus--elisp-mode-setup ()
+  (add-to-list 'imenu-generic-expression
+               (list "Use-package"
+                     (concat "^\\s-*(use-package\\s-+\\("
+                             lisp-mode-symbol-regexp "\\)")
+                     1))
 
-		   (add-to-list 'imenu-generic-expression
-				'("Sections" "^;;;\\s-+\\(.*\\)$" 1))
+  (add-to-list 'imenu-generic-expression
+               '("Sections" "^;;;\\s-+\\(.*\\)$" 1))
 
-		   (add-to-list 'imenu-generic-expression
-				'("Subsections" "^;;;;\\s-+\\(.*\\)$" 1))))
+  (add-to-list 'imenu-generic-expression
+               '("Subsections" "^;;;;\\s-+\\(.*\\)$" 1)))
 ```
 
 fold `defun'/`use-package' entries under the ";;; Section" comment
@@ -1323,10 +1326,7 @@ that carry an `org-imenu-marker' text property on their name."
         (when (and entry-pos (imenu-list-<= offset entry-pos point-pos))
           (setq offset entry-pos)
           (setq match-entry entry))))))
-
-(advice-add 'imenu-list--current-entry :override #'ilist-plus--current-entry)
 ```
-
 
 # VC Highlighting
 
@@ -1343,12 +1343,12 @@ pending `diff-hl' change."
   :group 'ilist-plus)
 ```
 
-Add a hook to redefine the face if the theme change
+## ilist-plus--theme-change-setup
+Redefine the face when the theme changes.
 ```
-(add-hook 'enable-theme-functions
-	  (lambda (&rest _)
-	    (set-face-attribute 'ilist-plus-modified-face nil
-				 :background (ilist-plus--modus-color 'bg-changed nil "yellow"))))
+(defun ilist-plus--theme-change-setup (&rest _)
+  (set-face-attribute 'ilist-plus-modified-face nil
+                       :background (ilist-plus--modus-color 'bg-changed nil "yellow")))
 ```
 
 
@@ -1485,11 +1485,12 @@ section with a pending `diff-hl' change, via `ilist-plus--mark-modified'."
 ```
 
 
-We have to fold before highlighting
+## ilist-plus--update-hook-setup
+We have to fold before highlighting.
 ```
-(add-hook 'imenu-list-update-hook (lambda ()
-				    (ilist-plus-fold-below-depth-once)
-				    (ilist-plus-highlight-modified-entries)))
+(defun ilist-plus--update-hook-setup ()
+  (ilist-plus-fold-below-depth-once)
+  (ilist-plus-highlight-modified-entries))
 ```
 
 # Org mode optimization. Its not completely clear if its needed.
@@ -1521,8 +1522,69 @@ since the last rescan; reuse the existing `imenu--index-alist' instead."
             imenu-list--displayed-buffer (current-buffer))
     (funcall orig-fn)
     (setq ilist-plus--last-tick (buffer-chars-modified-tick))))
+```
 
-(advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified)
+# Global minor mode
+
+Everything ilist-plus installs -- advice on `imenu-list' functions,
+hooks on `imenu-list-major-mode-hook'/`emacs-lisp-mode-hook'/
+`enable-theme-functions'/`imenu-list-update-hook', and the
+mode-line format -- is inherently global (there's no meaningful
+per-buffer version of advice on a shared function), so this is a
+`:global' minor mode rather than a buffer-local one.
+
+```
+(defvar ilist-plus-mode--saved-mode-line-format nil
+  "`imenu-list-mode-line-format' as it was before `ilist-plus-mode' set its own.")
+```
+
+## ilist-plus-mode--enable
+```
+(defun ilist-plus-mode--enable ()
+  (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
+  (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format))
+  (add-hook 'imenu-list-major-mode-hook #'ilist-plus--major-mode-setup)
+  ;; hideshow's own activation is not wanted -- we fold via our own overlays instead.
+  (remove-hook 'imenu-list-major-mode-hook #'hs-minor-mode)
+  (add-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
+  (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
+  (add-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
+  (advice-add 'imenu-list-smart-toggle :before #'ilist-plus-after-imenu-list-toggle)
+  (advice-add 'imenu-list--show-current-entry :after #'ilist-plus-reveal-current-entry)
+  (advice-add 'imenu-list--current-entry :override #'ilist-plus--current-entry)
+  (advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified))
+```
+
+## ilist-plus-mode--disable
+```
+(defun ilist-plus-mode--disable ()
+  (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format)
+  (remove-hook 'imenu-list-major-mode-hook #'ilist-plus--major-mode-setup)
+  (add-hook 'imenu-list-major-mode-hook #'hs-minor-mode)
+  (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
+  (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
+  (remove-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
+  (advice-remove 'imenu-list-smart-toggle #'ilist-plus-after-imenu-list-toggle)
+  (advice-remove 'imenu-list--show-current-entry #'ilist-plus-reveal-current-entry)
+  (advice-remove 'imenu-list--current-entry #'ilist-plus--current-entry)
+  (advice-remove 'imenu-list-collect-entries #'ilist-plus--skip-org-rescan-if-unmodified))
+```
+
+####autoload
+```
+(define-minor-mode ilist-plus-mode
+  "Toggle ilist-plus's imenu-list UI and elisp/org indexing extensions.
+
+Enabling this installs ilist-plus's mode-line format for the
+*Ilist* window, its folding/highlight/VC hooks on `imenu-list',
+its extra `imenu-generic-expression' entries for `emacs-lisp-mode',
+and its advice on `imenu-list' entry-tracking and collection
+functions. Disabling it removes all of the above again."
+  :global t
+  :group 'ilist-plus
+  (if ilist-plus-mode
+      (ilist-plus-mode--enable)
+    (ilist-plus-mode--disable)))
 
 (provide 'ilist-plus)
 ```
