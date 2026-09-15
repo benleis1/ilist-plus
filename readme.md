@@ -28,14 +28,19 @@ URL: https://github.com/benleis1/ilist-plus
 
 Imenu and imenu-list extensions  **BETA release**
 
-Included here are all of the extensions off of Imenu-List
-* Arrow icons
-* sorting
+Included here are various extensions for imenu-ilist including:
+
+UI:
+* Collapsible arrow icons
+* menu entry sorting (alphabetical/postion etc.)
 * custom mode-line formatting
-* fixes for highlighting even empty headers
-* special handling for org mode
-* custom indexing for elisp
-* custom indexing for treesitter java mode
+* a new face for highlighting the current location
+
+Semantics:
+* integration with diff-hl to show whole modified entries
+* Expanded hierarchical indexing for elisp
+* Expanded hierarchical indexing for treesitter java mode
+* perf optimization for org mode.
 
 ## Requirements
 1. imenu-list package installed and loaded before imenu.el ((use-package imenu-list :ensure t))
@@ -103,6 +108,9 @@ Included here are all of the extensions off of Imenu-List
   - [ilist-plus-reveal-current-entry](#ilist-plus-reveal-current-entry)
 - [Hierarchical treesitter tree parsing](#hierarchical-treesitter-tree-parsing)
   - [ilist-plus-make-marker](#ilist-plus-make-marker)
+  - [ilist-plus-get-def-name](#ilist-plus-get-def-name)
+  - [ilist-plus-get-field-name](#ilist-plus-get-field-name)
+  - [ilist-plus-leaf](#ilist-plus-leaf)
   - [ilist-plus-compare](#ilist-plus-compare)
   - [ilist-plus-current-sort](#ilist-plus-current-sort)
   - [ilist-plus-sort-advice](#ilist-plus-sort-advice)
@@ -133,6 +141,40 @@ Included here are all of the extensions off of Imenu-List
 - [ilist-plus.el ends here](#ilist-plusel-ends-here)
 
 <!-- markdown-toc end -->
+
+pre-declarations
+
+```
+(declare-function treesit-node-children treesit.el)
+(declare-function treesit-node-text treesit.el)
+(declare-function treesit-buffer-root-node treesit.el)
+(declare-function imenu--subalist-p imenu.el)
+(declare-function imenu--generic-function imenu.el)
+(declare-function imenu-list-refresh imenu-list.el)
+(declare-function imenu-list-<= imenu-list.el)
+(declare-function imenu-list-position-translator imenu-list.el)
+(declare-function hl-line-highlight hl-line.el)
+
+(defvar imenu--index-alist)
+(defvar imenu-list-buffer-name)
+(defvar imenu-list--displayed-buffer)
+(defvar imenu-list--imenu-entries)
+(defvar imenu-list--displayed-buffer)
+(defvar imenu-list-mode-line-format)
+```
+
+Work around an upstream imenu-list bug: `imenu-list-major-mode's docstring
+references `\{imenu-list-mode-map}' for its `describe-mode' (bound to "h")
+substitution, but no such variable exists -- only `imenu-list-major-mode-map'
+does -- so pressing "h" errors instead of showing the bindings. Declared
+here, before `imenu-list-major-mode-map' below, so the byte-compiler
+doesn't warn about alias/referent ordering.
+```
+(defvaralias 'imenu-list-mode-map 'imenu-list-major-mode-map)
+
+(defvar imenu-list-major-mode-map)
+(defvar imenu-list--line-entries)
+```
 
 # General UI changes
 ```
@@ -688,27 +730,33 @@ This can only be done while in the buffer
     (copy-marker point)))
 ```
 
-Guard the treesitter-dependent helpers below: `treesit' is only present
-when Emacs was built with tree-sitter support. `require' both loads it
-(so these no longer rely on some treesit-based major mode having been
-activated first) and doubles as the availability check.
+treesit is built in post version 29.
 ```
-(when (require 'treesit nil t)
+(require 'treesit)
+```
 
-  ;; Treesitter node name function for most node types
-  (defun ilist-plus-get-def-name (node)
-    (treesit-node-text
-     (treesit-node-child-by-field-name node "name") t))
+## ilist-plus-get-def-name
+Treesitter node name function for most node types
+```
+(defun ilist-plus-get-def-name (node)
+  (treesit-node-text
+   (treesit-node-child-by-field-name node "name") t))
+```
 
-  ;; Treesitter node name function for class fields
-  (defun ilist-plus-get-field-name (node)
-    (treesit-node-text
-     (treesit-node-child-by-field-name (treesit-node-child-by-field-name node "declarator") "name") t))
+## ilist-plus-get-field-name
+Treesitter node name function for class fields
+```
+(defun ilist-plus-get-field-name (node)
+  (treesit-node-text
+   (treesit-node-child-by-field-name (treesit-node-child-by-field-name node "declarator") "name") t))
+```
 
-  ;; Simple wrapper to make an imenu leaf from a treesitter node
-  (defun ilist-plus-leaf (node buffer name-func)
-    (cons (funcall name-func node)
-          (ilist-plus-make-marker buffer (treesit-node-start node)))))
+## ilist-plus-leaf
+Simple wrapper to make an imenu leaf from a treesitter node
+```
+(defun ilist-plus-leaf (node buffer name-func)
+  (cons (funcall name-func node)
+        (ilist-plus-make-marker buffer (treesit-node-start node))))
 ```
 
 ## ilist-plus-compare
@@ -818,14 +866,6 @@ regardless of strategy, so it's only offered there.
   (imenu-list-refresh))
 ```
 
-Work around an upstream imenu-list bug: `imenu-list-major-mode's docstring
-references `\{imenu-list-mode-map}' for its `describe-mode' (bound to "h")
-substitution, but no such variable exists -- only `imenu-list-major-mode-map'
-does -- so pressing "h" errors instead of showing the bindings.
-```
-(defvaralias 'imenu-list-mode-map 'imenu-list-major-mode-map)
-```
-
 Let "s" in the *Ilist* buffer itself switch sort order
 ```
 (define-key imenu-list-major-mode-map (kbd "s") #'ilist-plus-switch-sort)
@@ -850,6 +890,8 @@ node-name helpers above: only defined when `treesit' is available.
   ;; Walk the parent node class of an interface, class or enum and
   ;; construct a list of all fields, constructors and methods.
   ;; Recursion occurs when there is an inner class.
+  ;; predeclare so byte compiling is happy.
+  (declare-function ilist-plus-walk-object-declaration ilist-plus.el)
   (defun ilist-plus-walk-object-declaration (classnode buffer)
     (let ((constructors ())
           (fields ())
@@ -1300,6 +1342,15 @@ property).
 pending `diff-hl' change."
   :group 'ilist-plus)
 ```
+
+Add a hook to redefine the face if the theme change
+```
+(add-hook 'enable-theme-functions
+	  (lambda (&rest _)
+	    (set-face-attribute 'ilist-plus-modified-face nil
+				 :background (ilist-plus--modus-color 'bg-changed nil "yellow"))))
+```
+
 
 ## ilist-plus--flatten-entries
 >Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order

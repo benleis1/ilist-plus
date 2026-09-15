@@ -28,14 +28,19 @@
 
 ;; Imenu and imenu-list extensions  **BETA release**
 
-;; Included here are all of the extensions off of Imenu-List
-;; * Arrow icons
-;; * sorting
+;; Included here are various extensions for imenu-ilist including:
+
+;; UI:
+;; * Collapsible arrow icons
+;; * menu entry sorting (alphabetical/postion etc.)
 ;; * custom mode-line formatting
-;; * fixes for highlighting even empty headers
-;; * special handling for org mode
-;; * custom indexing for elisp
-;; * custom indexing for treesitter java mode
+;; * a new face for highlighting the current location
+
+;; Semantics:
+;; * integration with diff-hl to show whole modified entries
+;; * Expanded hierarchical indexing for elisp
+;; * Expanded hierarchical indexing for treesitter java mode
+;; * perf optimization for org mode.
 
 ;; ## Requirements
 ;; 1. imenu-list package installed and loaded before imenu.el ((use-package imenu-list :ensure t))
