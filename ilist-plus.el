@@ -70,6 +70,14 @@
 
 ;;; Code:
 
+;; pre-declarations
+
+(declare-function target-function-name "treesit-node-children")
+(declare-function target-function-name "treesit-node-text")
+(declare-function target-function-name "imenu-list-refresh")
+(declare-function target-function-name "imenu--subalist-p")
+(declare-function target-function-name "hl-line-hightlight")
+
 ;;; General UI changes
 (defgroup ilist-plus nil
   "Extended imenu-list support."
@@ -1005,6 +1013,13 @@ that carry an `org-imenu-marker' text property on their name."
   "Face for imenu-list entries covering a source section with a
 pending `diff-hl' change."
   :group 'ilist-plus)
+
+;; Add a hook to redefine the face if the theme change
+(add-hook 'enable-theme-functions
+	  (lambda (&rest _)
+	    (set-face-attribute 'ilist-plus-modified-face nil
+				 :background (ilist-plus--modus-color 'bg-changed nil "yellow"))))
+
 
 (defun ilist-plus--flatten-entries (index-alist depth)
   "Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order
