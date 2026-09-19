@@ -83,6 +83,12 @@
 
 ;;; Code:
 
+;; Top-level `define-key' calls below need `imenu-list-major-mode-map' bound,
+;; so `imenu-list' must actually be loaded here rather than just declared for
+;; the byte-compiler -- relying on load order from the caller (e.g. a deferred
+;; `use-package' form under elpaca) isn't guaranteed.
+(require 'imenu-list)
+
 ;; pre-declarations
 
 (declare-function treesit-node-children treesit.el)
@@ -488,12 +494,24 @@ Idempotent -- cheap enough to call on every marker refresh."
 ;; the fold ellipsis at the end of the header line.  Move point up to the
 ;; visible header line instead so the highlight bar actually shows.
 (defun ilist-plus-reveal-current-entry (&rest _)
-  (when (get-buffer-window imenu-list-buffer-name)
-    (with-selected-window (get-buffer-window imenu-list-buffer-name)
-      (when (invisible-p (point))
-        (goto-char (previous-single-char-property-change (point) 'invisible))
-        (beginning-of-line)
-        (hl-line-highlight)))))
+  (let ((window (get-buffer-window imenu-list-buffer-name)))
+    (when window
+      (let* ((buf (window-buffer window))
+             (pos (window-point window)))
+        (when (with-current-buffer buf (invisible-p pos))
+          (let ((target (with-current-buffer buf
+                          ;; The fold start is the first invisible char, i.e. the
+                          ;; beginning of the (hidden) line right after the header
+                          ;; -- back up one more char, onto the header's trailing
+                          ;; newline, before going to `beginning-of-line'.
+                          (goto-char (max (point-min)
+                                          (1- (previous-single-char-property-change
+                                               pos 'invisible))))
+                          (beginning-of-line)
+                          (point))))
+            (set-window-point window target)
+            (with-selected-window window
+              (hl-line-highlight))))))))
 
 ;;; Hierarchical treesitter tree parsing
 
@@ -556,10 +574,10 @@ Idempotent -- cheap enough to call on every marker refresh."
 (define-advice imenu-list-rescan-imenu (:after ())
   (ilist-plus-sort-advice))
 
-;; Custom sorting function that alphabetizes per imenu object type.
-;; There is no built in facility to extend sorting so we have to wire this in via advice
-;; This is written generically to handle elisp which just inserts all the functions as leaf nodes
-;; and java lsp/treesitter which insert everything under categories.
+;; Custom sorting function that alphabetizes per imenu object type.  There is no built in facility
+;; to extend sorting so we have to wire this in via advice This is written generically to handle
+;; elisp which just inserts all the functions as leaf nodes and java lsp/treesitter which insert
+;; everything under categories.
 (defun ilist-plus-sort-alphabetically ()
   (interactive)
   (let ((entries imenu--index-alist)
