@@ -489,29 +489,26 @@ Idempotent -- cheap enough to call on every marker refresh."
       (when (local-variable-p 'ilist-plus--folded-paths)
 	(setq ilist-plus--folded-paths nil)))))
 
-;; When the tracked entry is inside a currently-folded block, `hl-line-mode'
-;; highlights the (invisible) entry line, which visually collapses to just
-;; the fold ellipsis at the end of the header line.  Move point up to the
-;; visible header line instead so the highlight bar actually shows.
+;; When the tracked entry is inside a currently-folded block, temporarily unfold whatever hides it
+;; (even several containers deep) so the actual entry line is visible and highlighted, instead of
+;; just moving the highlight up to the nearest visible ancestor header. The overlays we delete below
+;; are never recorded into `ilist-plus--folded-paths', so they are recreated when folding is
+;; reapplied when moving entries.
 (defun ilist-plus-reveal-current-entry (&rest _)
   (let ((window (get-buffer-window imenu-list-buffer-name)))
     (when window
       (let* ((buf (window-buffer window))
-             (pos (window-point window)))
-        (when (with-current-buffer buf (invisible-p pos))
-          (let ((target (with-current-buffer buf
-                          ;; The fold start is the first invisible char, i.e. the
-                          ;; beginning of the (hidden) line right after the header
-                          ;; -- back up one more char, onto the header's trailing
-                          ;; newline, before going to `beginning-of-line'.
-                          (goto-char (max (point-min)
-                                          (1- (previous-single-char-property-change
-                                               pos 'invisible))))
-                          (beginning-of-line)
-                          (point))))
-            (set-window-point window target)
-            (with-selected-window window
-              (hl-line-highlight))))))))
+             (pos (window-point window))
+             (revealed nil))
+        (with-current-buffer buf
+          (dolist (ov (overlays-at pos))
+            (when (overlay-get ov 'ilist-plus-fold)
+              (delete-overlay ov)
+              (setq revealed t))))
+        (when revealed
+          (ilist-plus-update-fold-markers))
+        (with-selected-window window
+          (hl-line-highlight))))))
 
 ;;; Hierarchical treesitter tree parsing
 
@@ -1190,8 +1187,10 @@ since the last rescan; reuse the existing `imenu--index-alist' instead."
   (add-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   (add-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
+  ;; Appended so this runs *after* `ilist-plus--update-hook-setup' above --
+  ;; see `ilist-plus-reveal-current-entry'.
+  (add-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry t)
   (advice-add 'imenu-list-smart-toggle :before #'ilist-plus-after-imenu-list-toggle)
-  (advice-add 'imenu-list--show-current-entry :after #'ilist-plus-reveal-current-entry)
   (advice-add 'imenu-list--current-entry :override #'ilist-plus--current-entry)
   (advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified))
 
@@ -1202,8 +1201,8 @@ since the last rescan; reuse the existing `imenu--index-alist' instead."
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   (remove-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
+  (remove-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry)
   (advice-remove 'imenu-list-smart-toggle #'ilist-plus-after-imenu-list-toggle)
-  (advice-remove 'imenu-list--show-current-entry #'ilist-plus-reveal-current-entry)
   (advice-remove 'imenu-list--current-entry #'ilist-plus--current-entry)
   (advice-remove 'imenu-list-collect-entries #'ilist-plus--skip-org-rescan-if-unmodified))
 
