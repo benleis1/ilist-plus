@@ -124,6 +124,12 @@
   "Extended imenu-list support."
   :group 'convenience)
 
+;; Remove underlining from all the top level faces.
+(set-face-attribute 'imenu-list-entry-subalist-face-0 nil :underline nil)
+(set-face-attribute 'imenu-list-entry-subalist-face-1 nil :underline nil)
+(set-face-attribute 'imenu-list-entry-subalist-face-2 nil :underline nil)
+(set-face-attribute 'imenu-list-entry-subalist-face-3 nil :underline nil)
+
 (defvar ilist-plus-fixed-font (face-attribute 'default :family))
 
 ;; Be care to set the font family to one with nerd fonts so the icon renders.
@@ -164,10 +170,40 @@ modeline.el is loaded) is supplied.")
      local-map ,(or window-map ilist-plus-default-window-map))))
 
 (defconst ilist-plus-collapsed-marker "▶"
-  "Marker shown before a folded (hidden) imenu-list entry.")
+  "Marker shown for a folded (hidden) imenu-list entry -- in the
+`classic' `ilist-plus-tree-style' it replaces the leading \"+\"; in
+`straight'/`curved' it replaces the container's own connector cell.
+Shared by all three styles.")
 
 (defconst ilist-plus-expanded-marker "▼"
-  "Marker shown before an unfolded (visible) imenu-list entry.")
+  "Marker shown before an unfolded (visible) imenu-list entry, in the
+`classic' `ilist-plus-tree-style'. `straight'/`curved' show no marker
+at all when expanded -- the tree lines already convey the structure.")
+
+(defun ilist-plus--set-tree-style (symbol value)
+  "`:set' function for `ilist-plus-tree-style': applies VALUE, then
+redraws the *Ilist* buffer (if any) so the change is visible right
+away instead of waiting for the next unrelated refresh."
+  (set-default symbol value)
+  (when (get-buffer imenu-list-buffer-name)
+    (imenu-list-refresh)))
+
+(defcustom ilist-plus-tree-style 'classic
+  "Visual style used to render *Ilist* entry indentation and the
+container fold marker.
+
+`classic'  -- imenu-list's original look: plain indentation with a
+              leading \"+ \" marker (swapped for ▶/▼ by ilist-plus).
+`straight' -- unicode box-drawing tree lines (├─ └─ │); a collapsed
+              container's own connector is replaced by ▶, and an
+              expanded container shows no marker at all.
+`curved'   -- same as `straight' but with rounded corners (╰─ instead
+              of └─); the collapsed marker is the same ▶ glyph."
+  :type '(choice (const :tag "Classic (+/indent)" classic)
+                  (const :tag "Straight tree lines" straight)
+                  (const :tag "Curved tree lines" curved))
+  :set #'ilist-plus--set-tree-style
+  :group 'ilist-plus)
 
 ;; I need a more visible highlight for the current block
 (defface ilist-plus-hl-face
@@ -175,20 +211,122 @@ modeline.el is loaded) is supplied.")
   "A new custom face for highlighting."
   :group 'ilist-plus)
 
+;;; Tree-line rendering (`straight'/`curved' `ilist-plus-tree-style')
+;;
+;; `imenu-list-insert-entries' (advised below, `classic' style
+;; untouched) builds each line as: an ancestor-guide prefix (one
+;; 3-char cell per ancestor level -- "│  " if that ancestor has later
+;; siblings, "   " if it was the last child), then, for entries below
+;; the root, a 3-char branch cell ("├─ "/"└─ " or "╰─ " when curved).
+;; A container's own branch cell (or, at the root, a reserved 2-char
+;; blank cell) is tagged with the `ilist-plus-fold-marker' text
+;; property so `ilist-plus--set-marker-at-point' can find and replace
+;; it with `ilist-plus-collapsed-marker' once the container is
+;; folded, without ever changing the line's length -- folding only
+;; ever toggles a `display' override on that fixed-width span.
+
+(defun ilist-plus--tree-ancestor-prefix (ancestor-lasts)
+  "Build the ancestor-guide prefix for ANCESTOR-LASTS, a list (root to
+immediate parent) of whether each ancestor was the last child among
+its own siblings."
+  (mapconcat (lambda (last-p) (if last-p "   " "│  ")) ancestor-lasts ""))
+
+(defun ilist-plus--tree-branch (last-p style)
+  "The 3-char branch cell for an entry that is (or isn't) LAST-P among
+its siblings, drawn in STYLE (`straight' or `curved'). The corner
+glyph is the only difference between the two styles; the collapsed
+marker that can later replace this whole cell (see
+`ilist-plus-collapsed-marker') is shared by both."
+  (concat (if last-p (if (eq style 'curved) "╰" "└") "├") "─ "))
+
+(defun ilist-plus--insert-entry-tree (entry depth last-p ancestor-lasts style)
+  "Insert a tree-style line for ENTRY at DEPTH. LAST-P and
+ANCESTOR-LASTS are as in `ilist-plus--tree-ancestor-prefix'/
+`ilist-plus--tree-branch'. STYLE is `straight' or `curved'.
+
+For a container, its own connector cell (or the root's reserved
+blank slot) is part of the button's label, not text inserted ahead
+of it -- so a click anywhere on the connector toggles the fold, the
+same as clicking the leading \"+\" does in `classic' style. A leaf's
+branch cell stays outside its button, matching `classic', where the
+indentation ahead of a leaf's name is likewise unclickable."
+  (let ((subalistp (imenu--subalist-p entry)))
+    (insert (ilist-plus--tree-ancestor-prefix ancestor-lasts))
+    (if subalistp
+        (let* ((connector (if (= depth 0) "  " (ilist-plus--tree-branch last-p style)))
+               (btn-beg (point)))
+          (insert-button (concat connector (format "%s" (car entry)))
+                         'face (imenu-list--get-face depth t)
+                         'help-echo (format "Toggle: %s" (car entry))
+                         'follow-link t
+                         'action #'imenu-list--action-toggle-hs)
+          (put-text-property btn-beg (+ btn-beg (length connector)) 'ilist-plus-fold-marker t))
+      (when (> depth 0)
+        (insert (ilist-plus--tree-branch last-p style)))
+      (insert-button (format "%s" (car entry))
+                     'face (imenu-list--get-face depth nil)
+                     'help-echo (format "Go to: %s" (car entry))
+                     'follow-link t
+                     'action #'imenu-list--action-goto-entry))
+    (insert "\n")))
+
+(defun ilist-plus--insert-entries-internal-tree (index-alist depth ancestor-lasts style)
+  "Tree-style counterpart to `imenu-list--insert-entries-internal'."
+  (let ((n (length index-alist))
+        (i 0))
+    (dolist (entry index-alist)
+      (setq imenu-list--line-entries (cons entry imenu-list--line-entries))
+      (let ((last-p (= i (1- n))))
+        (ilist-plus--insert-entry-tree entry depth last-p ancestor-lasts style)
+        (when (imenu--subalist-p entry)
+          (ilist-plus--insert-entries-internal-tree
+           (cdr entry) (1+ depth)
+           ;; A root entry's own last-p never feeds its children's trunk --
+           ;; root entries are independent top-level headings, not siblings
+           ;; under a shared drawn parent, so there's nothing to draw a
+           ;; continuation line for. Depth 1+ trunks normally.
+           (if (= depth 0) nil (append ancestor-lasts (list last-p)))
+           style)))
+      (setq i (1+ i)))))
+
+(defun ilist-plus--insert-entries-advice (orig-fn)
+  "`:around' advice for `imenu-list-insert-entries': renders with
+`ilist-plus--insert-entries-internal-tree' when `ilist-plus-tree-style'
+is `straight'/`curved', otherwise defers to ORIG-FN (`classic',
+imenu-list's own rendering) unchanged."
+  (if (eq ilist-plus-tree-style 'classic)
+      (funcall orig-fn)
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (setq imenu-list--line-entries nil)
+      (ilist-plus--insert-entries-internal-tree
+       imenu-list--imenu-entries 0 nil ilist-plus-tree-style)
+      (setq imenu-list--line-entries (nreverse imenu-list--line-entries)))))
+
 (defun ilist-plus--set-marker-at-point ()
   "Make the fold marker on the current line display as an arrow
 reflecting whether the block starting here is currently hidden."
   (save-excursion
     (beginning-of-line)
-    (when (looking-at "^ *\\(\\+\\) ")
-      (let ((inhibit-read-only t))
-        (put-text-property (match-beginning 1) (match-end 1)
-                           'display
-                           ;; Our fold overlays start at the beginning of
-                           ;; the *next* line (see `ilist-plus--line-span'),
-                           (if (ilist-plus--folded-p (min (point-max) (1+ (line-end-position))))
-                               ilist-plus-collapsed-marker
-                             ilist-plus-expanded-marker))))))
+    (let* ((eol (line-end-position))
+           ;; Our fold overlays start at the beginning of the *next*
+           ;; line (see `ilist-plus--line-span'),
+           (folded (ilist-plus--folded-p (min (point-max) (1+ eol))))
+           (inhibit-read-only t))
+      (if (eq ilist-plus-tree-style 'classic)
+          (when (looking-at "^ *\\(\\+\\) ")
+            (put-text-property (match-beginning 1) (match-end 1)
+                               'display
+                               (if folded
+                                   ilist-plus-collapsed-marker
+                                 ilist-plus-expanded-marker)))
+        (let ((slot-beg (text-property-any (point) eol 'ilist-plus-fold-marker t)))
+          (when slot-beg
+            (let ((slot-end (next-single-property-change slot-beg 'ilist-plus-fold-marker nil eol)))
+              (put-text-property slot-beg slot-end 'display
+                                 (when folded
+                                   (concat ilist-plus-collapsed-marker
+                                           (make-string (1- (- slot-end slot-beg)) ?\s)))))))))))
 
 (defun ilist-plus-update-fold-markers ()
   "Update every foldable entry's marker in the *Ilist* buffer to
@@ -201,7 +339,6 @@ match its current hidden/shown state."
         (while (not (eobp))
           (ilist-plus--set-marker-at-point)
           (forward-line 1))))))
-
 
 ;;; Direct, hideshow-free folding.
 ;; Emacs 31 rewrote hideshow.el, and its new engine has a reproducible
@@ -263,7 +400,10 @@ entry, of N total)."
   (setq-local hl-line-overlay-priority 10)
   ;; Setup the custom invisibility spec we use for folding.
   (add-to-invisibility-spec ilist-plus--invisible-spec)
-  (setq-local line-move-ignore-invisible t))
+  (setq-local line-move-ignore-invisible t)
+  ;; Don't show a cursor in the *Ilist* window when it isn't the
+  ;; selected window.
+  (setq-local cursor-in-non-selected-windows nil))
 
  ;;; Autofolding
 (defvar-local ilist-plus-autofold-depth 2 "Initial depth to expand imenu-list window")
@@ -311,6 +451,55 @@ Used as a position-independent identity for saving/restoring fold state."
                            (when (imenu--subalist-p entry)
                              (ilist-plus--flatten-paths (cdr entry) entry-path)))))
                  index-alist)))
+
+(defun ilist-plus--path-prefix-p (prefix path)
+  "Non-nil if PREFIX equals PATH or is one of its ancestor paths --
+i.e. PATH's elements start with all of PREFIX's, in order."
+  (cond ((null prefix) t)
+        ((null path) nil)
+        ((equal (car prefix) (car path))
+         (ilist-plus--path-prefix-p (cdr prefix) (cdr path)))
+        (t nil)))
+
+(defun ilist-plus--remove-paths-with-prefix (prefix paths)
+  "Return PATHS with PREFIX, and every path that has PREFIX as an
+ancestor, removed."
+  (let (result)
+    (dolist (path paths)
+      (unless (ilist-plus--path-prefix-p prefix path)
+        (push path result)))
+    (nreverse result)))
+
+(defun ilist-plus--update-folded-paths (fn)
+  "Apply FN to the *source* buffer's saved `ilist-plus--folded-paths'
+and store the result back. FN receives the existing path list and
+returns the new one.
+
+Used by the fold commands to make a targeted, incremental edit to the
+saved fold snapshot, instead of rescanning every container's *current*
+visibility (as `ilist-plus--record-folded-paths' does). A full rescan
+is wrong here because it would also see -- and wrongly persist -- the
+temporarily unfolded state of whatever container
+`ilist-plus-reveal-current-entry' has un-hidden elsewhere in the tree,
+permanently forgetting that it should be folded again once point
+leaves it."
+  (let ((src imenu-list--displayed-buffer))
+    (when (buffer-live-p src)
+      (with-current-buffer src
+        (setq ilist-plus--folded-paths (funcall fn ilist-plus--folded-paths))))))
+
+(defun ilist-plus--fold-path (path)
+  "Record PATH as folded in the saved snapshot."
+  (ilist-plus--update-folded-paths
+   (lambda (paths) (if (member path paths) paths (cons path paths)))))
+
+(defun ilist-plus--unfold-path (path)
+  "Remove PATH, and any of its descendant paths, from the saved
+snapshot -- unfolding a container also discards (removes the fold
+overlays of) everything nested under it, so their paths shouldn't be
+restored as folded either."
+  (ilist-plus--update-folded-paths
+   (lambda (paths) (ilist-plus--remove-paths-with-prefix path paths))))
 
 (defun ilist-plus--record-folded-paths ()
   "Snapshot which containers are currently folded in the *Ilist* buffer
@@ -379,6 +568,29 @@ relying on whatever happens to be current."
       (with-current-buffer ilist
         (ilist-plus-update-fold-markers)))))
 
+(defun ilist-plus--relocate-hidden-highlight (beg end)
+  "If the *Ilist* window's tracked highlight is currently sitting
+inside BEG..END -- a span this command just folded -- move it back
+to the line right before BEG (the container whose fold covered it,
+always left visible) and refresh `hl-line-highlight' there.
+
+Without this, folding a section that contains the entry currently
+tracked from the *source* buffer leaves the highlight/window-point
+stranded on a now-invisible line: `ilist-plus-reveal-current-entry'
+(which would otherwise fix this up) only runs as part of
+`imenu-list-update', and `imenu-list-update' skips its own work
+whenever the *source* buffer's point hasn't moved since the last
+update -- which it hasn't, since this fold was triggered by
+interacting with the *Ilist* buffer directly, not by moving around
+in the source buffer."
+  (let ((window (get-buffer-window (current-buffer))))
+    (when window
+      (let ((pos (window-point window)))
+        (when (and (>= pos beg) (< pos end))
+          (set-window-point window (max (point-min) (1- beg)))
+          (with-selected-window window
+            (hl-line-highlight)))))))
+
 (defun ilist-plus-fold-children (&optional depth)
   "Fold the entries DEPTH levels (default 1, i.e. the entry's direct
 children) below the entry at point in the *Ilist* buffer -- folding a
@@ -391,13 +603,15 @@ under point from a clean, fully-shown state before refolding it."
   (let ((depth (or depth 1)))
     (with-current-buffer imenu-list-buffer-name
       (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
+             (paths (ilist-plus--flatten-paths imenu-list--imenu-entries nil))
              (n (length flat))
              (start (1- (line-number-at-pos (point))))
              (base-depth (1+ (cdr (nth start flat))))
              (target-depth (+ base-depth depth))
              (end (ilist-plus--subtree-end flat n start base-depth)))
         (let ((span (ilist-plus--line-span n start end)))
-          (ilist-plus--show-region (car span) (cdr span)))
+          (ilist-plus--show-region (car span) (cdr span))
+          (ilist-plus--unfold-path (nth start paths)))
         (let ((i (1+ start)))
           (while (< i end)
             (let* ((pair (nth i flat))
@@ -406,10 +620,11 @@ under point from a clean, fully-shown state before refolding it."
               (when (and (imenu--subalist-p entry) (= entry-depth target-depth))
                 (let* ((sub-end (ilist-plus--subtree-end flat n i entry-depth))
                        (span (ilist-plus--line-span n i sub-end)))
-                  (ilist-plus--hide-region (car span) (cdr span)))))
+                  (ilist-plus--hide-region (car span) (cdr span))
+                  (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
+                  (ilist-plus--fold-path (nth i paths)))))
             (setq i (1+ i)))))))
-  (ilist-plus-update-fold-markers)
-  (ilist-plus--record-folded-paths))
+  (ilist-plus-update-fold-markers))
 
 (defun ilist-plus-toggle-at-point ()
   "Toggle folding of the container entry at point in the *Ilist* buffer.
@@ -422,18 +637,22 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB/\"f\")."
            (pair (nth start flat))
            (entry (car pair)))
       (when (imenu--subalist-p entry)
-        (let* ((base-depth (1+ (cdr pair)))
+        (let* ((path (nth start (ilist-plus--flatten-paths imenu-list--imenu-entries nil)))
+               (base-depth (1+ (cdr pair)))
                (end (ilist-plus--subtree-end flat n start base-depth))
                (span (ilist-plus--line-span n start end)))
           (if (ilist-plus--folded-p (car span))
-              (ilist-plus--show-region (car span) (cdr span))
-            (ilist-plus--hide-region (car span) (cdr span)))))))
+              (progn
+                (ilist-plus--show-region (car span) (cdr span))
+                (ilist-plus--unfold-path path))
+            (ilist-plus--hide-region (car span) (cdr span))
+            (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
+            (ilist-plus--fold-path path))))))
   ;; A full marker refresh, not just the toggled line's -- `show-region'
   ;; removes every nested fold overlay in the span, so any child
   ;; containers that were folded need their own arrow flipped back to
   ;; expanded too.
-  (ilist-plus-update-fold-markers)
-  (ilist-plus--record-folded-paths))
+  (ilist-plus-update-fold-markers))
 
 
 ;; `imenu-list-insert-entries' erases and rebuilds the whole *Ilist* buffer
@@ -1192,7 +1411,8 @@ since the last rescan; reuse the existing `imenu--index-alist' instead."
   (add-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry t)
   (advice-add 'imenu-list-smart-toggle :before #'ilist-plus-after-imenu-list-toggle)
   (advice-add 'imenu-list--current-entry :override #'ilist-plus--current-entry)
-  (advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified))
+  (advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified)
+  (advice-add 'imenu-list-insert-entries :around #'ilist-plus--insert-entries-advice))
 
 (defun ilist-plus-mode--disable ()
   (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format)
@@ -1204,7 +1424,8 @@ since the last rescan; reuse the existing `imenu--index-alist' instead."
   (remove-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry)
   (advice-remove 'imenu-list-smart-toggle #'ilist-plus-after-imenu-list-toggle)
   (advice-remove 'imenu-list--current-entry #'ilist-plus--current-entry)
-  (advice-remove 'imenu-list-collect-entries #'ilist-plus--skip-org-rescan-if-unmodified))
+  (advice-remove 'imenu-list-collect-entries #'ilist-plus--skip-org-rescan-if-unmodified)
+  (advice-remove 'imenu-list-insert-entries #'ilist-plus--insert-entries-advice))
 
 ;;;###autoload
 (define-minor-mode ilist-plus-mode
