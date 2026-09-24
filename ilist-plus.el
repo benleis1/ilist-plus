@@ -20,7 +20,7 @@
 
 ;; Maintainer: Benjamin Leis <benleis1@gmail.com>
 
-;; Version: 0.0.1
+;; Version: 0.0.2
 
 ;; Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
 
@@ -30,13 +30,25 @@
 
 ;; Imenu and imenu-list extensions  **BETA release**
 
-;; Included here are various extensions for imenu-ilist that are aimed at making it more useful for
-;; understanding and navigating a file's structure. Stock imenu-list gives you a flat, ordered by
-;; position index; these extensions turn it into a more dynamic outline by leveraging hierarchy and
-;; folding strategies, so the side window tracks where you are and how deep you are without extra
-;; effort.
+;; This package transforms Emac's imenu-list into a richer outline sidebar. It adds hierarchical
+;; folding, sorting, Git modification indicators, improved styling and better indexing for elisp,
+;; org and treesitter java. If you use imenu-list to navigate large files, ilist-plus make the
+;; outline substantially more informative and interactive.  Stock imenu-list gives you a flat,
+;; ordered by position index; these extensions turn it into a more dynamic outline by leveraging
+;; hierarchy and folding strategies, so the side window tracks where you are and how deep you are
+;; without extra effort.
 
-;; UI:
+;; ## Samples
+;; ![Before - with just imenu-ilist](./before.png)
+;;    This shows what imenu-list looks like by itself.
+;;
+;; ![After - with ilist-plus](./after.png)
+;;    This shows what ilist-plus changes.
+;;
+;; ![Folding Behavior](./demo2.gif)
+;;    The dynamic folding behavior.
+
+;; ## UI
 ;; * Collapsible arrow icons and several ascii tree formatting styles.
 ;; * menu entry sorting (alphabetical/postion etc.)
 ;; * custom mode-line formatting
@@ -44,7 +56,7 @@
 ;; * default autofolding levels. For example: autofold every node deeper than 2 levels on initial open.
 ;; * auto unfolding for the current node the cursor is located at.
 
-;; Semantics:
+;; ## Semantics
 ;; * Integration with diff-hl to visually show which entries are modified.
 ;; * Expanded hierarchical indexing for elisp that parse header/subheader comments and organize based on that.
 ;; * Expanded hierarchical indexing for treesitter java mode
@@ -79,9 +91,6 @@
 ;;                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ;; ```
 ;; 4. Turn on the side window by calling `imenu-list-smart-toggle`
-
-;; ## Sample Screen
-;; ![sample screen](./sample.png)
 
 ;; ## Demo video
 ;; [Link](https://www.youtube.com/watch?v=NU2WcX4dDiU)

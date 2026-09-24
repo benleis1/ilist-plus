@@ -20,7 +20,7 @@ Author:  Benjamin Leis <benleis1@gmail.com>
 
 Maintainer: Benjamin Leis <benleis1@gmail.com>
 
-Version: 0.0.1
+Version: 0.0.2
 
 Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
 
