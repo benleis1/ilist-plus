@@ -45,7 +45,7 @@ without extra effort.
 ![After - with ilist-plus](./after.png) This shows what ilist-plus changes immediately. Note: the
    new hierarchy based on the elisp header comments and autofolding.
 
-![More Details](./after.png) One of the ascii tree styles and some additional feature callouts.
+![More Details](./demo3.png) One of the ascii tree styles and some additional feature callouts.
 
 ![Folding Behavior](./demo2.gif)
    The dynamic folding behavior.
