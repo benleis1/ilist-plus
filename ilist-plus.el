@@ -30,18 +30,23 @@
 
 ;; Imenu and imenu-list extensions  **BETA release**
 
-;; Included here are various extensions for imenu-ilist including:
+;; Included here are various extensions for imenu-ilist that are aimed at making it more useful for
+;; understanding and navigating a file's structure. Stock imenu-list gives you a flat, ordered by
+;; position index; these extensions turn it into a more dynamic outline by leveraging hierarchy and
+;; folding strategies, so the side window tracks where you are and how deep you are without extra
+;; effort.
 
 ;; UI:
-;; * Collapsible arrow icons
+;; * Collapsible arrow icons and several ascii tree formatting styles.
 ;; * menu entry sorting (alphabetical/postion etc.)
 ;; * custom mode-line formatting
 ;; * a new face for highlighting the current location
-;; * default autofolding levels
+;; * default autofolding levels. For example: autofold every node deeper than 2 levels on initial open.
+;; * auto unfolding for the current node the cursor is located at.
 
 ;; Semantics:
-;; * integration with diff-hl to show whole modified entries
-;; * Expanded hierarchical indexing for elisp
+;; * Integration with diff-hl to visually show which entries are modified.
+;; * Expanded hierarchical indexing for elisp that parse header/subheader comments and organize based on that.
 ;; * Expanded hierarchical indexing for treesitter java mode
 ;; * perf optimization for org mode.
 
@@ -365,6 +370,15 @@ match its current hidden/shown state."
   "Non-nil if our fold overlay covers POS."
   (eq (get-char-property pos 'invisible) ilist-plus--invisible-spec))
 
+(defun ilist-plus--any-folded-p ()
+  "Non-nil if any container in the *Ilist* buffer (current buffer) is
+currently folded."
+  (let (found)
+    (dolist (ov (overlays-in (point-min) (point-max)))
+      (when (overlay-get ov 'ilist-plus-fold)
+        (setq found t)))
+    found))
+
 (defun ilist-plus--subtree-end (flat n start base-depth)
   "Index in FLAT (length N) of the first entry after START whose
 depth is not greater than BASE-DEPTH -- i.e. the end of the subtree
@@ -656,6 +670,21 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB/\"f\")."
   ;; expanded too.
   (ilist-plus-update-fold-markers))
 
+(defun ilist-plus-toggle-fold-all ()
+  "Toggle the whole *Ilist* buffer between fully unfolded and folded
+down to `ilist-plus-autofold-depth'. Bound to \"f\": if anything in the
+tree is currently folded, unfolds everything; otherwise refolds it
+back down to the autofold depth."
+  (interactive)
+  (with-current-buffer imenu-list-buffer-name
+    (if (ilist-plus--any-folded-p)
+        (progn
+          (ilist-plus--show-region (point-min) (point-max))
+          (ilist-plus--update-folded-paths (lambda (_) nil)))
+      (ilist-plus-fold-below-depth)
+      (ilist-plus--record-folded-paths)))
+  (ilist-plus-update-fold-markers))
+
 
 ;; `imenu-list-insert-entries' erases and rebuilds the whole *Ilist* buffer
 ;; whenever the source buffer's imenu entries actually change (e.g. a real
@@ -849,11 +878,11 @@ Idempotent -- cheap enough to call on every marker refresh."
 
 ;; Let "s" in the *Ilist* buffer itself switch sort order
 (define-key imenu-list-major-mode-map (kbd "s") #'ilist-plus-switch-sort)
-(define-key imenu-list-major-mode-map (kbd "c") #'ilist-plus-fold-children)
 
-;; Rebind hideshow's TAB/"f" to our own irect-overlay toggle
+;; Rebind hideshow's TAB to our own direct-overlay toggle, and "f" to
+;; toggle the whole tree between fully unfolded and the autofold depth.
 (define-key imenu-list-major-mode-map (kbd "TAB") #'ilist-plus-toggle-at-point)
-(define-key imenu-list-major-mode-map (kbd "f") #'ilist-plus-toggle-at-point)
+(define-key imenu-list-major-mode-map (kbd "f") #'ilist-plus-toggle-fold-all)
 
 ;; Guard the java-ts indexer and its helpers the same way as the treesit
 ;; node-name helpers above: only defined when `treesit' is available.
