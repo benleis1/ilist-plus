@@ -42,8 +42,8 @@
 ;; ![Before - with just imenu-ilist](./before.png)
 ;;    This shows what imenu-list looks like by itself.
 ;;
-;; ![After - with ilist-plus](./after.png)
-;;    This shows what ilist-plus changes.
+;; ![After - with ilist-plus](./after.png) This shows what ilist-plus changes immediately. Note: the
+;;    new hierarchy based on the elisp header comments and autofolding.
 ;;
 ;; ![Folding Behavior](./demo2.gif)
 ;;    The dynamic folding behavior.
