@@ -28,7 +28,7 @@ Keywords: convenience outlines tools
 
 URL: https://github.com/benleis1/ilist-plus
 
-Imenu and imenu-list extensions  **BETA release**
+**BETA release**
 
 This package transforms Emac's imenu-list into a richer outline sidebar. It adds hierarchical
 folding, sorting, Git modification indicators, improved styling and better indexing for elisp,
@@ -44,6 +44,8 @@ without extra effort.
 
 ![After - with ilist-plus](./after.png) This shows what ilist-plus changes immediately. Note: the
    new hierarchy based on the elisp header comments and autofolding.
+
+![More Details](./after.png) One of the ascii tree styles and some additional feature callouts.
 
 ![Folding Behavior](./demo2.gif)
    The dynamic folding behavior.
@@ -92,6 +94,29 @@ without extra effort.
 ```
 4. Turn on the side window by calling `imenu-list-smart-toggle`
 
+## Customization
+* The tree style is set via the custom variable `ilist-plus-tree-style`.
+* Set fg-hl-imenu to some color in a modus palette override to set the foreground color for the current
+entry
+
+
+## Key bindings
+Bindings active in the `*Ilist*` buffer (`imenu-list-major-mode-map`). Rows marked `*` are
+added or rebound by ilist-plus over imenu-list's stock binding.
+
+| Key              | Command                      | Description                                          |
+|------------------|-------------------------------|-------------------------------------------------------|
+| `RET` / `mouse-2`| `imenu-list-ret-dwim`        | Jump to the entry at point                            |
+| `SPC`            | `imenu-list-display-dwim`    | Display the entry without leaving the Ilist buffer    |
+| `TAB` *          | `ilist-plus-toggle-at-point` | Toggle fold/unfold of the entry at point               |
+| `f` *            | `ilist-plus-toggle-fold-all` | Toggle the whole tree between fully unfolded and the autofold depth |
+| `s` *            | `ilist-plus-switch-sort`     | Switch sort strategy (alphabetical / position / by-type) |
+| `n`              | `next-line`                   | Move to the next entry                                 |
+| `p`              | `previous-line`               | Move to the previous entry                             |
+| `g`              | `imenu-list-refresh`         | Refresh the index                                      |
+| `q`              | `imenu-list-quit-window`     | Close the Ilist window                                 |
+| `mouse-1` *      | `quit-window`                 | Click the Ilist mode-line to close the window          |
+
 ## Demo video
 [Link](https://www.youtube.com/watch?v=NU2WcX4dDiU)
 
@@ -106,6 +131,8 @@ without extra effort.
   - [Semantics](#semantics)
   - [Requirements](#requirements)
   - [Installing](#installing)
+  - [Customization](#customization)
+  - [Key bindings](#key-bindings)
   - [Demo video](#demo-video)
 - [Code:](#code)
 - [General UI changes](#general-ui-changes)
