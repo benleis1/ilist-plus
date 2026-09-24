@@ -244,23 +244,25 @@ marker that can later replace this whole cell (see
 ANCESTOR-LASTS are as in `ilist-plus--tree-ancestor-prefix'/
 `ilist-plus--tree-branch'. STYLE is `straight' or `curved'.
 
-For a container, its own connector cell (or the root's reserved
-blank slot) is part of the button's label, not text inserted ahead
-of it -- so a click anywhere on the connector toggles the fold, the
-same as clicking the leading \"+\" does in `classic' style. A leaf's
-branch cell stays outside its button, matching `classic', where the
-indentation ahead of a leaf's name is likewise unclickable."
+For a container, its own connector cell is part of the button's label,
+not text inserted ahead of it, so a click anywhere on the connector
+toggles the fold, the same as clicking the leading \"+\" does in
+`classic' style. A leaf's branch cell stays outside its button, matching
+`classic', where the indentation ahead of a leaf's name is likewise
+unclickable. Root entries -- leaf or container -- get no cell at all, so
+every root heading lines up flush with the tree lines."
   (let ((subalistp (imenu--subalist-p entry)))
     (insert (ilist-plus--tree-ancestor-prefix ancestor-lasts))
     (if subalistp
-        (let* ((connector (if (= depth 0) "  " (ilist-plus--tree-branch last-p style)))
+        (let* ((connector (if (= depth 0) "" (ilist-plus--tree-branch last-p style)))
                (btn-beg (point)))
           (insert-button (concat connector (format "%s" (car entry)))
                          'face (imenu-list--get-face depth t)
                          'help-echo (format "Toggle: %s" (car entry))
                          'follow-link t
                          'action #'imenu-list--action-toggle-hs)
-          (put-text-property btn-beg (+ btn-beg (length connector)) 'ilist-plus-fold-marker t))
+          (when (> (length connector) 0)
+            (put-text-property btn-beg (+ btn-beg (length connector)) 'ilist-plus-fold-marker t)))
       (when (> depth 0)
         (insert (ilist-plus--tree-branch last-p style)))
       (insert-button (format "%s" (car entry))
