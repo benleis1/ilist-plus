@@ -35,8 +35,9 @@
 
 (defun ilist-plus-test--line-of (tree name)
   "0-based display line of the entry named NAME in flattened TREE."
-  (cl-position name (ilist-plus--flatten-entries tree 0)
-               :key (lambda (pair) (car (car pair))) :test #'equal))
+  (cl-position name (ilist-plus--build-nodes tree)
+               :key (lambda (node) (car (ilist-plus--node-entry node)))
+               :test #'equal))
 
 (defun ilist-plus-test--goto-line (n)
   (goto-char (point-min))
@@ -88,18 +89,33 @@ name of the synthetic declaration leaf it fabricates for every header
 
 ;;; Direct, hideshow-free folding
 
-(ert-deftest ilist-plus-test-flatten-entries ()
-  (let ((flat (ilist-plus--flatten-entries ilist-plus-test--tree-simple 0)))
-    (should (equal (mapcar (lambda (p) (cons (car (car p)) (cdr p))) flat)
-                   '(("A" . 0) ("B" . 0) ("B1" . 1) ("B2" . 1) ("C" . 0))))))
+(ert-deftest ilist-plus-test-build-nodes ()
+  (let ((nodes (ilist-plus--build-nodes ilist-plus-test--tree-simple)))
+    (should (equal (mapcar (lambda (node) (car (ilist-plus--node-entry node))) nodes)
+                   '("A" "B" "B1" "B2" "C")))
+    (should (equal (mapcar #'ilist-plus--node-depth nodes) '(0 0 1 1 0)))
+    (should (equal (mapcar #'ilist-plus--node-level nodes) '(1 1 2 2 1)))
+    (should (equal (mapcar #'ilist-plus--node-path nodes)
+                   '(("A") ("B") ("B" "B1") ("B" "B2") ("C"))))
+    (should (equal (mapcar #'ilist-plus--node-container-p nodes)
+                   '(nil t nil nil nil)))
+    (should (equal (mapcar #'ilist-plus--node-last-child nodes)
+                   '(nil nil nil t t)))))
 
-(ert-deftest ilist-plus-test-flatten-paths ()
-  (should (equal (ilist-plus--flatten-paths ilist-plus-test--tree-simple nil)
-                 '(("A") ("B") ("B" "B1") ("B" "B2") ("C")))))
+(ert-deftest ilist-plus-test-build-nodes-ancestor-last-children ()
+  (let ((nodes (ilist-plus--build-nodes
+                '(("Root" ("Child1" ("GC1" . 1) ("GC2" . 2)) ("Child2" . 3))))))
+    (should (equal (mapcar #'ilist-plus--node-last-child nodes)
+                   '(t nil nil t t)))
+    ;; A top-level entry is never drawn as a parent, so its own last-child
+    ;; stays out of its descendants' lists.
+    (should (equal (mapcar #'ilist-plus--node-ancestor-last-children nodes)
+                   '(nil nil (nil) (nil) nil)))))
 
 (ert-deftest ilist-plus-test-subtree-end ()
-  (let ((flat (ilist-plus--flatten-entries ilist-plus-test--tree-simple 0)))
-    (should (= (ilist-plus--subtree-end flat (length flat) 1 1) 4))))
+  (let ((nodes (ilist-plus--build-nodes ilist-plus-test--tree-simple)))
+    (should (= (ilist-plus--subtree-end nodes (length nodes) 1) 4))
+    (should (= (ilist-plus--subtree-end nodes (length nodes) 4) 5))))
 
 (ert-deftest ilist-plus-test-hide-show-folded-p ()
   (with-temp-buffer
@@ -470,7 +486,7 @@ name of the synthetic declaration leaf it fabricates for every header
             (ilist-plus--elisp-mode-setup)
             (insert ";;; Header\n\n;;; Code:\n\n;;; Section A\n\n;;;; Sub A1\n(defun test-fn-a1 () nil)\n\n;;;; Sub A2\n(defun test-fn-a2 () nil)\n"))
           (let* ((entries (with-current-buffer src (ilist-plus-elisp-index-by-position)))
-                 (flat (ilist-plus--flatten-entries entries 0)))
+                 (flat (ilist-plus--build-nodes entries)))
             (with-current-buffer src
               (goto-char (point-min))
               (search-forward "test-fn-a1")
@@ -596,7 +612,8 @@ name of the synthetic declaration leaf it fabricates for every header
   (with-current-buffer (ilist-plus--buffer frame) (buffer-string)))
 
 (ert-deftest ilist-plus-test-two-frames-toggle-and-view-independently ()
-  (let ((f1 (selected-frame))
+  (let ((ilist-plus-focus-after-activation nil)
+        (f1 (selected-frame))
         (f2 (ilist-plus-test--make-frame))
         (a (generate-new-buffer "ilist-plus-test-frame-a"))
         (b (generate-new-buffer "ilist-plus-test-frame-b")))

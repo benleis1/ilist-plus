@@ -475,19 +475,72 @@ visible right away instead of waiting for the next unrelated refresh."
 ;; folded, without ever changing the line's length -- folding only
 ;; ever toggles a `display' override on that fixed-width span.
 
-(defun ilist-plus--tree-ancestor-prefix (ancestor-lasts)
-  "Build the ancestor-guide prefix for ANCESTOR-LASTS.
-ANCESTOR-LAST is a list (root to immediate parent) of whether each
-ancestor was the last child among its own siblings."
-  (mapconcat (lambda (last-p) (if last-p "   " "│  ")) ancestor-lasts ""))
+(cl-defstruct (ilist-plus--node (:constructor ilist-plus--node-create)
+                                (:copier nil))
+  "One line of the outline, built by `ilist-plus--build-nodes'.
+It holds what the renderer and the fold code need to know about a line,
+so neither has to thread depth or sibling state through recursion."
+  (entry nil :documentation "The imenu entry shown on the line.")
+  (depth 0 :documentation "Nesting depth; 0 for top-level entries.")
+  (last-child nil
+              :documentation "Non-nil if the entry is last among its siblings.")
+  (ancestor-last-children
+   nil
+   :documentation "The `last-child' of each ancestor, outermost first.
+Top-level entries are not drawn as a parent, so they are left out.")
+  (path nil
+        :documentation "Names of the entry and its ancestors, outermost first.")
+  (container-p nil :documentation "Non-nil if the entry has children."))
 
-(defun ilist-plus--tree-branch (last-p style)
-  "The 3-char branch string for an entry that is (or isn't) LAST-P using STYLE.
-Drawn in STYLE (`straight' or `curved'). The corner glyph is the only
-difference between the two styles; the collapsed marker that can later
-replace this whole cell (see `ilist-plus-collapsed-marker') is shared by
-both."
-  (concat (if last-p (if (eq style 'curved) "╰" "└") "├") "─ "))
+(defun ilist-plus--node-level (node)
+  "Return NODE's 1-based depth.
+Top-level entries are level 1, as `ilist-plus-autofold-depth' counts them."
+  (1+ (ilist-plus--node-depth node)))
+
+(defun ilist-plus--build-nodes (index-alist)
+  "Return INDEX-ALIST flattened into `ilist-plus--node's, in display order."
+  (let (nodes)
+    (cl-labels
+        ((walk (alist ancestor-last-children path)
+           (let ((count (length alist))
+                 (depth (length path))
+                 (i 0))
+             (dolist (entry alist)
+               (let ((last-child (= i (1- count)))
+                     (entry-path (append path (list (car entry))))
+                     (container-p (and (imenu--subalist-p entry) t)))
+                 (push (ilist-plus--node-create
+                        :entry entry :depth depth :last-child last-child
+                        :ancestor-last-children ancestor-last-children
+                        :path entry-path :container-p container-p)
+                       nodes)
+                 (when container-p
+                   ;; Top-level entries are independent headings, not siblings
+                   ;; under a drawn parent, so their own `last-child' never
+                   ;; feeds a trunk line.
+                   (walk (cdr entry)
+                         (if (= depth 0)
+                             nil
+                           (append ancestor-last-children (list last-child)))
+                         entry-path)))
+               (setq i (1+ i))))))
+      (walk index-alist nil nil))
+    (nreverse nodes)))
+
+(defun ilist-plus--tree-ancestor-prefix (ancestor-last-children)
+  "Return the ancestor-guide prefix for ANCESTOR-LAST-CHILDREN.
+ANCESTOR-LAST-CHILDREN lists, outermost to immediate parent, whether
+each ancestor was the last child among its own siblings."
+  (mapconcat (lambda (last-child) (if last-child "   " "│  "))
+             ancestor-last-children ""))
+
+(defun ilist-plus--tree-branch (last-child style)
+  "Return the 3-char branch string for an entry drawn in STYLE.
+LAST-CHILD non-nil means the entry is last among its siblings.  STYLE is
+`straight' or `curved'; the corner glyph is the only difference between
+them.  The collapsed marker that can later replace this whole cell (see
+`ilist-plus-collapsed-marker') is shared by both."
+  (concat (if last-child (if (eq style 'curved) "╰" "└") "├") "─ "))
 
 (defun ilist-plus--get-face (depth subalistp)
   "The face for an entry at DEPTH and SUBALISTP for containers.
@@ -526,55 +579,17 @@ when they exist, so their customizations carry over."
   "Indentation prefix for an entry at DEPTH in the `classic' style."
   (if (> depth 0) (concat (make-string (* 2 depth) ?\s) " ") ""))
 
-(defun ilist-plus--insert-entry-classic (entry depth)
-  "Insert a `classic'-style line for ENTRY at DEPTH."
-  (insert (ilist-plus--depth-string depth))
-  (if (imenu--subalist-p entry)
-      (insert-button (format "+ %s" (car entry))
-                     'face (ilist-plus--get-face depth t)
-                     'help-echo (format "Toggle: %s" (car entry))
-                     'follow-link t
-                     'action #'ilist-plus--action-toggle)
-    (insert-button (format "%s" (car entry))
-                   'face (ilist-plus--get-face depth nil)
-                   'help-echo (format "Go to: %s" (car entry))
-                   'follow-link t
-                   'action #'ilist-plus--action-goto-entry))
-  (insert "\n"))
-
-(defun ilist-plus--insert-entries-internal-classic (index-alist depth)
-  "Insert INDEX-ALIST at DEPTH in the `classic' style, recording each entry."
-  (dolist (entry index-alist)
-    (push entry ilist-plus--line-entries)
-    (ilist-plus--insert-entry-classic entry depth)
-    (when (imenu--subalist-p entry)
-      (ilist-plus--insert-entries-internal-classic (cdr entry) (1+ depth)))))
-
-(defun ilist-plus--insert-entry-tree (entry depth last-p ancestor-lasts style)
-  "Insert a tree-style line for ENTRY at DEPTH. LAST-P ANCESTOR-LASTS and STYLE.
-ANCESTOR-LASTS comes from `ilist-plus--tree-ancestor-prefix'/
-`ilist-plus--tree-branch'. STYLE is `straight' or `curved'.
-
-For a container, its own connector cell is part of the button's label,
-not text inserted ahead of it, so a click anywhere on the connector
-toggles the fold, the same as clicking the leading \"+\" does in
-`classic' style. A leaf's branch cell stays outside its button, matching
-`classic', where the indentation ahead of a leaf's name is likewise
-unclickable."
-  (let ((subalistp (imenu--subalist-p entry)))
-    (insert (ilist-plus--tree-ancestor-prefix ancestor-lasts))
-    (if subalistp
-        (let* ((connector (if (= depth 0) "" (ilist-plus--tree-branch last-p style)))
-               (btn-beg (point)))
-          (insert-button (concat connector (format "%s" (car entry)))
-                         'face (ilist-plus--get-face depth t)
-                         'help-echo (format "Toggle: %s" (car entry))
-                         'follow-link t
-                         'action #'ilist-plus--action-toggle)
-          (when (> (length connector) 0)
-            (put-text-property btn-beg (+ btn-beg (length connector)) 'ilist-plus-fold-marker t)))
-      (when (> depth 0)
-        (insert (ilist-plus--tree-branch last-p style)))
+(defun ilist-plus--insert-node-classic (node)
+  "Insert the `classic'-style line for NODE."
+  (let ((entry (ilist-plus--node-entry node))
+        (depth (ilist-plus--node-depth node)))
+    (insert (ilist-plus--depth-string depth))
+    (if (ilist-plus--node-container-p node)
+        (insert-button (format "+ %s" (car entry))
+                       'face (ilist-plus--get-face depth t)
+                       'help-echo (format "Toggle: %s" (car entry))
+                       'follow-link t
+                       'action #'ilist-plus--action-toggle)
       (insert-button (format "%s" (car entry))
                      'face (ilist-plus--get-face depth nil)
                      'help-echo (format "Go to: %s" (car entry))
@@ -582,35 +597,53 @@ unclickable."
                      'action #'ilist-plus--action-goto-entry))
     (insert "\n")))
 
-(defun ilist-plus--insert-entries-internal-tree (index-alist depth ancestor-lasts style)
-  "Insert a tree style entry for INDEX-ALIST, DEPTH, ANCESTOR-LASTS and with STYLE."
-  (let ((n (length index-alist))
-        (i 0))
-    (dolist (entry index-alist)
-      (push entry ilist-plus--line-entries)
-      (let ((last-p (= i (1- n))))
-        (ilist-plus--insert-entry-tree entry depth last-p ancestor-lasts style)
-        (when (imenu--subalist-p entry)
-          (ilist-plus--insert-entries-internal-tree
-           (cdr entry) (1+ depth)
-           ;; A root entry's own last-p never feeds its children's trunk --
-           ;; root entries are independent top-level headings, not siblings
-           ;; under a shared drawn parent, so there's nothing to draw a
-           ;; continuation line for. Depth 1+ trunks normally.
-           (if (= depth 0) nil (append ancestor-lasts (list last-p)))
-           style)))
-      (setq i (1+ i)))))
+(defun ilist-plus--insert-node-tree (node style)
+  "Insert the tree-style line for NODE, drawn in STYLE.
+STYLE is `straight' or `curved'.
+
+For a container, its own connector cell is part of the button's label,
+not text inserted ahead of it, so a click anywhere on the connector
+toggles the fold, the same as clicking the leading \"+\" does in
+`classic' style.  A leaf's branch cell stays outside its button,
+matching `classic', where the indentation ahead of a leaf's name is
+likewise unclickable."
+  (let ((entry (ilist-plus--node-entry node))
+        (depth (ilist-plus--node-depth node))
+        (last-child (ilist-plus--node-last-child node)))
+    (insert (ilist-plus--tree-ancestor-prefix
+             (ilist-plus--node-ancestor-last-children node)))
+    (if (ilist-plus--node-container-p node)
+        (let* ((connector (if (= depth 0)
+                              ""
+                            (ilist-plus--tree-branch last-child style)))
+               (btn-beg (point)))
+          (insert-button (concat connector (format "%s" (car entry)))
+                         'face (ilist-plus--get-face depth t)
+                         'help-echo (format "Toggle: %s" (car entry))
+                         'follow-link t
+                         'action #'ilist-plus--action-toggle)
+          (when (> (length connector) 0)
+            (put-text-property btn-beg (+ btn-beg (length connector))
+                               'ilist-plus-fold-marker t)))
+      (when (> depth 0)
+        (insert (ilist-plus--tree-branch last-child style)))
+      (insert-button (format "%s" (car entry))
+                     'face (ilist-plus--get-face depth nil)
+                     'help-echo (format "Go to: %s" (car entry))
+                     'follow-link t
+                     'action #'ilist-plus--action-goto-entry))
+    (insert "\n")))
 
 (defun ilist-plus--insert-entries ()
   "Rebuild the current IlistPlus buffer."
-  (let ((inhibit-read-only t))
+  (let ((inhibit-read-only t)
+        (nodes (ilist-plus--build-nodes ilist-plus--entries)))
     (erase-buffer)
-    (setq ilist-plus--line-entries nil)
-    (if (eq ilist-plus-tree-style 'classic)
-        (ilist-plus--insert-entries-internal-classic ilist-plus--entries 0)
-      (ilist-plus--insert-entries-internal-tree
-       ilist-plus--entries 0 nil ilist-plus-tree-style))
-    (setq ilist-plus--line-entries (nreverse ilist-plus--line-entries))))
+    (dolist (node nodes)
+      (if (eq ilist-plus-tree-style 'classic)
+          (ilist-plus--insert-node-classic node)
+        (ilist-plus--insert-node-tree node ilist-plus-tree-style)))
+    (setq ilist-plus--line-entries (mapcar #'ilist-plus--node-entry nodes))))
 
 (defun ilist-plus--set-marker-at-point ()
   "Set the fold marker on the current line."
@@ -677,20 +710,22 @@ unclickable."
         (setq found t)))
     found))
 
-;; Find where the given subtree ends.
-(defun ilist-plus--subtree-end (flat n start base-depth)
-  "Index in FLAT (length N) of the first entry after START with BASE-DEPTH."
-  (let ((i (1+ start)))
-    (while (and (< i n) (> (1+ (cdr (nth i flat))) base-depth))
+(defun ilist-plus--subtree-end (nodes n start)
+  "Return the index of the first node after START outside START's subtree.
+NODES is the list of `ilist-plus--node's and N its length.  Return N
+when the subtree runs to the end."
+  (let ((i (1+ start))
+        (depth (ilist-plus--node-depth (nth start nodes))))
+    (while (and (< i n) (> (ilist-plus--node-depth (nth i nodes)) depth))
       (setq i (1+ i)))
     i))
 
 (defun ilist-plus--line-span (n i end-i)
-  "Character range to hide for the subtree at line I: from the start of
-  line I+1 (i.e. *after* I's own header line and its newline, so the
-		 header keeps its own line break and stays on its own visual line) to
-  the start of line END-I (or `point-max' if END-I runs past the last
-			      entry, of N total)."
+  "Character range to hide for the subtree at line I.
+Calculated from the start of line I+1 (i.e. *after* I's own header line
+  and its newline, so the header keeps its own line break and stays on
+  its own visual line) to the start of line END-I (or `point-max' if
+  END-I runs past the last entry, of N total)."
   (save-excursion
     (goto-char (point-min))
     (forward-line (1+ i))
@@ -716,8 +751,7 @@ unclickable."
   "Keymap of `ilist-plus-major-mode'.")
 
 (define-derived-mode ilist-plus-major-mode special-mode "Ilist"
-  "Major mode of the per-frame `*IListPlus[N]*' outline buffers.
-  \\{ilist-plus-major-mode-map}"
+  "Major mode of the per-frame `*IListPlus[N]' outline buffers."
   (setq-local mode-line-format (or (ilist-plus--opt 'mode-line-format)
                                    (ilist-plus--build-mode-line-format)))
   ;; Wire in my custom highlight face.
@@ -732,56 +766,39 @@ unclickable."
   (setq-local cursor-in-non-selected-windows nil))
 
  ;;; Autofolding
-(defvar-local ilist-plus-autofold-depth 2 "Initial depth to expand imenu-list window.")
+(defvar-local ilist-plus-autofold-depth 2 "Initial depth to expand the ilist-plus window.")
 
 ;; Track whether we've shown this buffer's imenu-list at least once, and
 ;; if so, which containers were folded the last time we looked -- both
 ;; are buffer-local to the *source* buffer (not the shared *Ilist*
 ;; buffer), so each buffer remembers its own fold state independently.
 (defvar-local ilist-plus--folded-once nil
-  "`ilist-plus-fold-below-depth' has folded this buffer's imenu-list.")
+  "Has `ilist-plus-fold-below-depth' folded this buffer's ilist-plus buffer.")
 
 (defvar-local ilist-plus--folded-paths nil
-  "Ancestor-name paths (see `ilist-plus--flatten-paths') of the
-  containers that were folded the last time this buffer's *Ilist* was
-  displayed. Restored by `ilist-plus--restore-folded-paths' whenever
-  the *Ilist* buffer is rebuilt for this buffer again.")
+  "Paths of the containers that were folded when this buffer was last shown.
+Each path is an `ilist-plus--node-path'.  `ilist-plus--restore-folded-paths'
+reapplies them whenever the Ilist is rebuilt for this buffer.")
 
 (defun ilist-plus-fold-below-depth (&optional depth ibuf)
-  "Collapse entries nested deeper than DEPTH (default
-					      `ilist-plus-autofold-depth') in IBUF (default: the current Ilist
-					      buffer). Top-level entries are depth 1."
+  "Collapse entries nested deeper than DEPTH in IBUF.
+DEPTH defaults to `ilist-plus-autofold-depth' and IBUF to the current
+Ilist buffer.  Top-level entries are depth 1."
   (interactive)
   (let ((depth (or depth ilist-plus-autofold-depth)))
     (with-current-buffer (or ibuf (ilist-plus--current-ibuf))
-      (let* ((flat (ilist-plus--flatten-entries ilist-plus--entries 0))
-             (n (length flat)))
+      (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+             (n (length nodes)))
         (dotimes (i n)
-          (let* ((pair (nth i flat))
-                 (entry (car pair))
-                 (entry-depth (1+ (cdr pair))))
-            (when (and (imenu--subalist-p entry) (= entry-depth depth))
-              (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+          (let ((node (nth i nodes)))
+            (when (and (ilist-plus--node-container-p node)
+                       (= (ilist-plus--node-level node) depth))
+              (let* ((end-i (ilist-plus--subtree-end nodes n i))
                      (span (ilist-plus--line-span n i end-i)))
                 (ilist-plus--hide-region (car span) (cdr span))))))))))
 
-(defun ilist-plus--flatten-paths (index-alist path)
-  "Parallel traversal to `ilist-plus--flatten-entries', returning each
-  entry's ancestor-name PATH (a list of strings, root to leaf) in the same
-  flattened order -- so `(nth i (ilist-plus--flatten-paths tree nil))'
-  identifies the same entry as `(nth i (ilist-plus--flatten-entries tree 0))'.
-  Used as a position-independent identity for saving/restoring fold state."
-  (apply #'nconc
-         (mapcar (lambda (entry)
-                   (let ((entry-path (append path (list (car entry)))))
-                     (cons entry-path
-                           (when (imenu--subalist-p entry)
-                             (ilist-plus--flatten-paths (cdr entry) entry-path)))))
-                 index-alist)))
-
 (defun ilist-plus--path-prefix-p (prefix path)
-  "Non-nil if PREFIX equals PATH or is one of its ancestor paths --
-  i.e. PATH's elements start with all of PREFIX's, in order."
+  "Return if PREFIX equals PATH or is one of its ancestor paths."
   (cond ((null prefix) t)
         ((null path) nil)
         ((equal (car prefix) (car path))
@@ -829,46 +846,39 @@ unclickable."
    (lambda (paths) (ilist-plus--remove-paths-with-prefix path paths))))
 
 (defun ilist-plus--record-folded-paths (ilist)
-  "Snapshot which containers are currently folded in the Ilist buffer
-  ILIST and save that snapshot on its source buffer as
-  `ilist-plus--folded-paths', so `ilist-plus--restore-folded-paths' can
-  reapply it the next time this buffer's Ilist is rebuilt -- e.g. after
-  switching to another buffer and back, or after a reindex."
+  "Save the folded containers of the Ilist buffer ILIST on its source buffer.
+Store their paths in `ilist-plus--folded-paths', so that
+`ilist-plus--restore-folded-paths' can reapply them the next time the
+Ilist is rebuilt, e.g. after switching buffers or after a reindex."
   (let ((src (buffer-local-value 'ilist-plus--source ilist)))
     (when (and ilist (buffer-live-p src))
       (let (folded)
         (with-current-buffer ilist
-          (let* ((flat (ilist-plus--flatten-entries ilist-plus--entries 0))
-                 (paths (ilist-plus--flatten-paths ilist-plus--entries nil))
-                 (n (length flat)))
+          (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+                 (n (length nodes)))
             (dotimes (i n)
-              (let* ((pair (nth i flat))
-                     (entry (car pair))
-                     (entry-depth (1+ (cdr pair))))
-                (when (imenu--subalist-p entry)
-                  (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+              (let ((node (nth i nodes)))
+                (when (ilist-plus--node-container-p node)
+                  (let* ((end-i (ilist-plus--subtree-end nodes n i))
                          (span (ilist-plus--line-span n i end-i)))
                     (when (ilist-plus--folded-p (car span))
-                      (push (nth i paths) folded))))))))
+                      (push (ilist-plus--node-path node) folded))))))))
         (with-current-buffer src
           (setq ilist-plus--folded-paths folded))))))
 
 (defun ilist-plus--restore-folded-paths (paths)
-  "Fold every container in the *Ilist* buffer (current buffer) whose
-  ancestor-name path is a member of PATHS, as produced by
-  `ilist-plus--record-folded-paths'. Matching by name path rather than
-  position means folds survive a rebuild even if entries shifted lines."
+  "Fold the containers of the current Ilist buffer whose path is in PATHS.
+PATHS is a list as produced by `ilist-plus--record-folded-paths'.
+Matching by name path rather than position lets folds survive a rebuild
+even if entries shifted lines."
   (when paths
-    (let* ((flat (ilist-plus--flatten-entries ilist-plus--entries 0))
-           (flat-paths (ilist-plus--flatten-paths ilist-plus--entries nil))
-           (n (length flat)))
+    (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+           (n (length nodes)))
       (dotimes (i n)
-        (let* ((pair (nth i flat))
-               (entry (car pair))
-               (entry-depth (1+ (cdr pair))))
-          (when (and (imenu--subalist-p entry)
-                     (member (nth i flat-paths) paths))
-            (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+        (let ((node (nth i nodes)))
+          (when (and (ilist-plus--node-container-p node)
+                     (member (ilist-plus--node-path node) paths))
+            (let* ((end-i (ilist-plus--subtree-end nodes n i))
                    (span (ilist-plus--line-span n i end-i)))
               (ilist-plus--hide-region (car span) (cdr span)))))))))
 
@@ -915,62 +925,56 @@ unclickable."
             (hl-line-highlight)))))))
 
 (defun ilist-plus-fold-children (&optional depth)
-  "Fold the entries DEPTH levels (default 1, i.e. the entry's direct
-					  children) below the entry at point in the *Ilist* buffer -- folding a
-  child hides ITS content, which is what makes the grandchildren (DEPTH+1)
-  disappear from view while the children themselves stay visible, just
-  collapsed. Discards any manual toggles within that subtree; the rest of
-  the tree is left untouched. Bound to \"c\"; always resets the subtree
-  under point from a clean, fully-shown state before refolding it."
+  "Fold the entries DEPTH levels below the entry at point.
+DEPTH defaults to 1, the entry's direct children.  Folding a child hides
+its content, so the grandchildren disappear while the children stay
+visible, just collapsed.  Any manual toggles within the subtree are
+discarded and the rest of the tree is left untouched.  The subtree is
+always reset to a fully shown state before it is refolded."
   (interactive)
   (let ((depth (or depth 1)))
     (with-current-buffer (ilist-plus--current-ibuf)
-      (let* ((flat (ilist-plus--flatten-entries ilist-plus--entries 0))
-             (paths (ilist-plus--flatten-paths ilist-plus--entries nil))
-             (n (length flat))
+      (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+             (n (length nodes))
              (start (1- (line-number-at-pos (point))))
-             (base-depth (1+ (cdr (nth start flat))))
-             (target-depth (+ base-depth depth))
-             (end (ilist-plus--subtree-end flat n start base-depth)))
+             (base (nth start nodes))
+             (target-level (+ (ilist-plus--node-level base) depth))
+             (end (ilist-plus--subtree-end nodes n start)))
         (let ((span (ilist-plus--line-span n start end)))
           (ilist-plus--show-region (car span) (cdr span))
-          (ilist-plus--unfold-path (nth start paths)))
+          (ilist-plus--unfold-path (ilist-plus--node-path base)))
         (let ((i (1+ start)))
           (while (< i end)
-            (let* ((pair (nth i flat))
-                   (entry (car pair))
-                   (entry-depth (1+ (cdr pair))))
-              (when (and (imenu--subalist-p entry) (= entry-depth target-depth))
-                (let* ((sub-end (ilist-plus--subtree-end flat n i entry-depth))
+            (let ((node (nth i nodes)))
+              (when (and (ilist-plus--node-container-p node)
+                         (= (ilist-plus--node-level node) target-level))
+                (let* ((sub-end (ilist-plus--subtree-end nodes n i))
                        (span (ilist-plus--line-span n i sub-end)))
                   (ilist-plus--hide-region (car span) (cdr span))
                   (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
-                  (ilist-plus--fold-path (nth i paths)))))
+                  (ilist-plus--fold-path (ilist-plus--node-path node)))))
             (setq i (1+ i)))))))
   (ilist-plus-update-fold-markers))
 
 (defun ilist-plus-toggle-at-point ()
-  "Toggle folding of the container entry at point in the *Ilist* buffer.
-  Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB/\"f\")."
+  "Toggle folding of the container entry at point in the Ilist buffer.
+Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (interactive)
   (with-current-buffer (ilist-plus--current-ibuf)
-    (let* ((flat (ilist-plus--flatten-entries ilist-plus--entries 0))
-           (n (length flat))
+    (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+           (n (length nodes))
            (start (1- (line-number-at-pos (point))))
-           (pair (nth start flat))
-           (entry (car pair)))
-      (when (imenu--subalist-p entry)
-        (let* ((path (nth start (ilist-plus--flatten-paths ilist-plus--entries nil)))
-               (base-depth (1+ (cdr pair)))
-               (end (ilist-plus--subtree-end flat n start base-depth))
+           (node (nth start nodes)))
+      (when (and node (ilist-plus--node-container-p node))
+        (let* ((end (ilist-plus--subtree-end nodes n start))
                (span (ilist-plus--line-span n start end)))
           (if (ilist-plus--folded-p (car span))
               (progn
                 (ilist-plus--show-region (car span) (cdr span))
-                (ilist-plus--unfold-path path))
+                (ilist-plus--unfold-path (ilist-plus--node-path node)))
             (ilist-plus--hide-region (car span) (cdr span))
             (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
-            (ilist-plus--fold-path path))))))
+            (ilist-plus--fold-path (ilist-plus--node-path node)))))))
   ;; A full marker refresh, not just the toggled line's -- `show-region'
   ;; removes every nested fold overlay in the span, so any child
   ;; containers that were folded need their own arrow flipped back to
@@ -1868,16 +1872,6 @@ pending `diff-hl' change."
   (ilist-plus--modus-apply-heading-colors))
 
 
-(defun ilist-plus--flatten-entries (index-alist depth)
-  "Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order
-`imenu-list' displays them."
-  (apply #'nconc
-         (mapcar (lambda (entry)
-                   (cons (cons entry depth)
-                         (when (imenu--subalist-p entry)
-                           (ilist-plus--flatten-entries (cdr entry) (1+ depth)))))
-                 index-alist)))
-
 (defun ilist-plus--section-modified-p (start end buffer)
   "Return non-nil if BUFFER has a `diff-hl' hunk overlapping (START, END)."
   (when (and start end)
@@ -1936,13 +1930,13 @@ IBUF covering a source section with a pending `diff-hl' change, via
   (let ((src-buf (buffer-local-value 'ilist-plus--source ibuf))
         (entries (buffer-local-value 'ilist-plus--entries ibuf)))
     (when (buffer-live-p src-buf)
-      (let* ((flat (ilist-plus--flatten-entries entries 0))
-             (n (length flat))
+      (let* ((nodes (ilist-plus--build-nodes entries))
+             (n (length nodes))
              (leaf-modified (make-vector n nil))
              (index-table (make-hash-table :test 'eq))
              (i 0))
-        (dolist (pair flat)
-          (puthash (car pair) i index-table)
+        (dolist (node nodes)
+          (puthash (ilist-plus--node-entry node) i index-table)
           (setq i (1+ i)))
         (ilist-plus--mark-modified entries src-buf index-table leaf-modified)
         (with-current-buffer ibuf
