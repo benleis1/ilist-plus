@@ -20,9 +20,9 @@ Author:  Benjamin Leis <benleis1@gmail.com>
 
 Maintainer: Benjamin Leis <benleis1@gmail.com>
 
-Version: 0.0.2
+Version: 0.0.3
 
-Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
+Package-Requires: ((emacs "29") (diff-hl "20260830.1400"))
 
 Keywords: convenience outlines tools
 
@@ -65,7 +65,8 @@ without extra effort.
 * perf optimization for org mode.
 
 ## Requirements
-1. imenu-list package installed and loaded before imenu.el ((use-package imenu-list :ensure t))
+1. Nothing else is required to show the outline: ilist-plus does not need, and never loads,
+   imenu-list. To keep an existing imenu-list configuration, see `ilist-plus-imenu-list-compat`.
 2. Recommended: modus-themes loaded with a theme active — modus-themes-get-color-value is called
    at defface time for ilist-plus-hl-face and ilist-plus-modified-face.
 3. Recommended: a fg-hl-imenu entry in modus-themes-common-palette-overrides — without it the
@@ -79,7 +80,8 @@ without extra effort.
    :vc (:url "https://github.com/benleis1/ilist-plus"))
 ```
 2. Turn on `ilist-plus-mode` (a global minor mode) to install its
-   mode-line format, hooks, and advice on `imenu-list`.
+   mode-line format and hooks, and to redirect `imenu-list-smart-toggle` to `ilist-plus-toggle`
+   so existing key bindings keep working.
 ```
 (ilist-plus-mode 1)
 ```
@@ -92,29 +94,36 @@ without extra effort.
             	      (setq-local ilist-plus-autofold-depth 2)
                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ```
-4. Turn on the side window by calling `imenu-list-smart-toggle`
+4. Turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
+   `*IListPlus[N]*`, that tracks, folds and toggles independently of the other frames.
 
 ## Customization
 * The tree style is set via the custom variable `ilist-plus-tree-style`.
+* Window and update behavior: `ilist-plus-position`, `ilist-plus-size`,
+  `ilist-plus-focus-after-activation`, `ilist-plus-auto-resize`, `ilist-plus-update-current-entry`,
+  `ilist-plus-auto-update`, `ilist-plus-idle-update-delay`, `ilist-plus-after-jump-hook` and
+  `ilist-plus-update-hook`.
+* Set `ilist-plus-imenu-list-compat` to non-nil to have ilist-plus read the matching `imenu-list-*`
+  options (and hooks, and the `imenu-list` entry faces) when they are defined. Off by default.
 * Set fg-hl-imenu to some color in a modus palette override to set the foreground color for the current
 entry
 
 
 ## Key bindings
-Bindings active in the `*Ilist*` buffer (`imenu-list-major-mode-map`). Rows marked `*` are
-added or rebound by ilist-plus over imenu-list's stock binding.
+Bindings active in the `*IListPlus[N]*` buffers (`ilist-plus-major-mode-map`). Rows marked `*` are
+bindings that stock imenu-list does not have.
 
 | Key              | Command                      | Description                                          |
 |------------------|-------------------------------|-------------------------------------------------------|
-| `RET` / `mouse-2`| `imenu-list-ret-dwim`        | Jump to the entry at point                            |
-| `SPC`            | `imenu-list-display-dwim`    | Display the entry without leaving the Ilist buffer    |
+| `RET` / `mouse-2`| `ilist-plus-ret-dwim`        | Jump to the entry at point                            |
+| `SPC`            | `ilist-plus-display-dwim`    | Display the entry without leaving the Ilist buffer    |
 | `TAB` *          | `ilist-plus-toggle-at-point` | Toggle fold/unfold of the entry at point               |
 | `f` *            | `ilist-plus-toggle-fold-all` | Toggle the whole tree between fully unfolded and the autofold depth |
 | `s` *            | `ilist-plus-switch-sort`     | Switch sort strategy (alphabetical / position / by-type) |
 | `n`              | `next-line`                   | Move to the next entry                                 |
 | `p`              | `previous-line`               | Move to the previous entry                             |
-| `g`              | `imenu-list-refresh`         | Refresh the index                                      |
-| `q`              | `imenu-list-quit-window`     | Close the Ilist window                                 |
+| `g`              | `ilist-plus-refresh`         | Refresh the index                                      |
+| `q`              | `ilist-plus-quit-window`     | Close this frame's Ilist window                        |
 | `mouse-1` *      | `quit-window`                 | Click the Ilist mode-line to close the window          |
 
 ## Demo video
