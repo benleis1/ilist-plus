@@ -282,6 +282,18 @@ Assigned on first use as the lowest id not held by another frame."
         (set-frame-parameter frame 'ilist-plus-id id)
         id)))
 
+(defun ilist-plus--drop-duplicate-frame-id (frame)
+  "Clear FRAME's Ilist id if another frame already holds it.
+`clone-frame' copies every frame parameter, so a clone would otherwise
+share its original's Ilist buffer.  The id is reassigned on next use."
+  (let ((id (frame-parameter frame 'ilist-plus-id)))
+    (when (and id
+               (cl-some (lambda (other)
+                          (and (not (eq other frame))
+                               (eql (frame-parameter other 'ilist-plus-id) id)))
+                        (frame-list)))
+      (set-frame-parameter frame 'ilist-plus-id nil))))
+
 (defun ilist-plus--buffer-name (&optional frame)
   "Name of FRAME's (default: the selected frame's) Ilist buffer."
   (format "*IListPlus[%d]*" (ilist-plus--frame-id (or frame (selected-frame)))))
@@ -403,6 +415,11 @@ Default to the current frame if FRAME isn't supplied."
       (modus-themes-get-color-value name overrides)
     (or fallback "black")))
 
+(defun ilist-plus--hl-foreground ()
+  "Foreground for `ilist-plus-hl-face': modus `fg-hl-imenu', else nil."
+  (and (fboundp 'modus-themes-get-color-value)
+       (modus-themes-get-color-value 'fg-hl-imenu t)))
+
 ;; `mode-line-highlight' usually draws a box, which adds pixels around the hovered text and shifts
 ;; the icon; drop the box so hovering only changes colors.
 (defface ilist-plus-mode-line-highlight
@@ -491,7 +508,7 @@ visible right away instead of waiting for the next unrelated refresh."
 
 ;; I need a more visible highlight for the current block
 (defface ilist-plus-hl-face
-  `((t (:inherit ilist-plus-face :foreground ,(ilist-plus--modus-color 'fg-hl-imenu t) :weight bold)))
+  `((t (:inherit ilist-plus-face :foreground ,(ilist-plus--hl-foreground) :weight bold)))
   "A new custom face for highlighting."
   :group 'ilist-plus)
 
@@ -893,6 +910,7 @@ Ilist is rebuilt, e.g. after switching buffers or after a reindex."
 PATHS is a list as produced by `ilist-plus--record-folded-paths'.
 Matching by name path rather than position lets folds survive a rebuild
 even if entries shifted lines."
+  (ilist-plus--show-region (point-min) (point-max))
   (when paths
     (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
            (n (length nodes)))
@@ -1343,7 +1361,6 @@ FORCE will always do an update even if nothing has changed."
   "Hide this Ilist's window."
   (interactive)
   (ilist-plus--close (buffer-local-value 'ilist-plus--frame (ilist-plus--current-ibuf))))
-
 ;;; Jumping to entries
 
 (defun ilist-plus--find-entry ()
@@ -1352,6 +1369,8 @@ FORCE will always do an update even if nothing has changed."
 
 (defun ilist-plus--goto-entry (entry)
   "Jump to ENTRY in the source buffer of the current Ilist buffer."
+  (unless entry
+    (user-error "No entry on this line"))
   (let ((ibuf (current-buffer))
         (source ilist-plus--source)
         (frame ilist-plus--frame))
@@ -1909,6 +1928,8 @@ pending `diff-hl' change."
 (defun ilist-plus--theme-change-setup (&rest _)
   (set-face-attribute 'ilist-plus-modified-face nil
 		      :background (ilist-plus--modus-color 'bg-changed nil "yellow"))
+  (when-let* ((fg (ilist-plus--hl-foreground)))
+    (set-face-attribute 'ilist-plus-hl-face nil :foreground fg))
   (ilist-plus--modus-apply-heading-colors))
 
 
@@ -2016,6 +2037,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
         (ilist-plus--elisp-mode-setup))))
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   (add-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
+  (add-hook 'after-make-frame-functions #'ilist-plus--drop-duplicate-frame-id)
   ;; Keeps existing `imenu-list-smart-toggle' key bindings working if in compat mode
   (when ilist-plus-imenu-list-compat
     (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle)))
@@ -2026,6 +2048,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   (remove-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
+  (remove-hook 'after-make-frame-functions #'ilist-plus--drop-duplicate-frame-id)
   (when ilist-plus-imenu-list-compat
     (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle)))
 

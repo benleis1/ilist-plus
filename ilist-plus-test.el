@@ -192,6 +192,24 @@ name of the synthetic declaration leaf it fabricates for every header
             (should-not (ilist-plus--folded-p (point)))))
       (kill-buffer src))))
 
+(ert-deftest ilist-plus-test-restore-folded-paths-does-not-pile-up-overlays ()
+  (let ((src (generate-new-buffer "ilist-plus-test-src-overlays")))
+    (unwind-protect
+        (progn
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (with-current-buffer ilist-plus-test--ibuf
+            (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Child1"))
+            (ilist-plus-toggle-at-point))
+          (let ((paths (buffer-local-value 'ilist-plus--folded-paths src)))
+            (with-current-buffer ilist-plus-test--ibuf
+              (dotimes (_ 5)
+                (ilist-plus--restore-folded-paths paths))
+              (should (= 1 (length (seq-filter
+                                    (lambda (ov) (overlay-get ov 'ilist-plus-fold))
+                                    (overlays-in (point-min) (point-max)))))))))
+      (kill-buffer src))))
+
 (ert-deftest ilist-plus-test-fold-below-depth-once-dispatches-on-folded-flag ()
   (let ((src (generate-new-buffer "ilist-plus-test-src2")))
     (unwind-protect
@@ -690,6 +708,29 @@ name of the synthetic declaration leaf it fabricates for every header
 
 (defun ilist-plus-test--ibuf-text (frame)
   (with-current-buffer (ilist-plus--buffer frame) (buffer-string)))
+
+(ert-deftest ilist-plus-test-drop-duplicate-frame-id ()
+  (let ((params (list (cons 'orig 1) (cons 'clone 1) (cons 'other 2))))
+    (cl-letf (((symbol-function 'frame-list) (lambda () '(orig clone other)))
+              ((symbol-function 'frame-parameter)
+               (lambda (f _p) (alist-get f params)))
+              ((symbol-function 'set-frame-parameter)
+               (lambda (f _p v) (setf (alist-get f params) v))))
+      (ilist-plus--drop-duplicate-frame-id 'other)
+      (should (= 2 (alist-get 'other params)))
+      (ilist-plus--drop-duplicate-frame-id 'clone)
+      (should-not (alist-get 'clone params))
+      (should (= 1 (alist-get 'orig params))))))
+
+(ert-deftest ilist-plus-test-mode-installs-clone-frame-guard ()
+  (let ((ilist-plus-mode nil))
+    (unwind-protect
+        (progn
+          (ilist-plus-mode 1)
+          (should (memq #'ilist-plus--drop-duplicate-frame-id after-make-frame-functions))
+          (ilist-plus-mode -1)
+          (should-not (memq #'ilist-plus--drop-duplicate-frame-id after-make-frame-functions)))
+      (ilist-plus-mode -1))))
 
 (ert-deftest ilist-plus-test-two-frames-toggle-and-view-independently ()
   (let ((ilist-plus-focus-after-activation nil)
