@@ -634,9 +634,24 @@ name of the synthetic declaration leaf it fabricates for every header
 
 (ert-deftest ilist-plus-test-buffer-names-follow-frame-id ()
   (let ((frame (selected-frame)))
-    (should (equal (ilist-plus--buffer-name frame)
+    (should (equal (ilist-plus--buffer-name frame t)
                    (format "*IListPlus[%d]*" (ilist-plus--frame-id frame))))
-    (should (= (ilist-plus--frame-id frame) (ilist-plus--frame-id frame)))))
+    (should (= (ilist-plus--frame-id frame t) (ilist-plus--frame-id frame t)))))
+
+(ert-deftest ilist-plus-test-lookups-do-not-allocate-frame-id ()
+  (let ((frame (selected-frame))
+        (old (frame-parameter (selected-frame) 'ilist-plus-id)))
+    (unwind-protect
+        (progn
+          (set-frame-parameter frame 'ilist-plus-id nil)
+          (should-not (ilist-plus--buffer-name frame))
+          (should-not (ilist-plus--buffer frame))
+          (ilist-plus--frame-deleted frame)
+          (should-not (frame-parameter frame 'ilist-plus-id))
+          (ilist-plus--get-buffer frame)
+          (should (frame-parameter frame 'ilist-plus-id)))
+      (when-let* ((buf (ilist-plus--buffer frame))) (kill-buffer buf))
+      (set-frame-parameter frame 'ilist-plus-id old))))
 
 (ert-deftest ilist-plus-test-get-buffer-is-per-frame-and-killed-with-it ()
   (let* ((frame (selected-frame))

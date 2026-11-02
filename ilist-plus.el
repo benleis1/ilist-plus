@@ -270,17 +270,18 @@ that variable is bound, otherwise `ilist-plus-NAME'."
 (defvar-local ilist-plus--last-location nil
   "Marker where this Ilist buffer was last updated from; avoids redundant updates.")
 
-(defun ilist-plus--frame-id (frame)
-  "The small positive integer naming FRAME's Ilist buffer.
-Assigned on first use as the lowest id not held by another frame."
+(defun ilist-plus--frame-id (frame &optional allocate)
+  "The small positive integer naming FRAME's Ilist buffer, or nil if it has none.
+With ALLOCATE, give FRAME the lowest id not held by another frame instead."
   (or (frame-parameter frame 'ilist-plus-id)
-      (let ((used (delq nil (mapcar (lambda (f) (frame-parameter f 'ilist-plus-id))
-                                    (frame-list))))
-            (id 1))
-        (while (memq id used)
-          (setq id (1+ id)))
-        (set-frame-parameter frame 'ilist-plus-id id)
-        id)))
+      (when allocate
+        (let ((used (delq nil (mapcar (lambda (f) (frame-parameter f 'ilist-plus-id))
+                                      (frame-list))))
+              (id 1))
+          (while (memq id used)
+            (setq id (1+ id)))
+          (set-frame-parameter frame 'ilist-plus-id id)
+          id))))
 
 (defun ilist-plus--drop-duplicate-frame-id (frame)
   "Clear FRAME's Ilist id if another frame already holds it.
@@ -294,13 +295,16 @@ share its original's Ilist buffer.  The id is reassigned on next use."
                         (frame-list)))
       (set-frame-parameter frame 'ilist-plus-id nil))))
 
-(defun ilist-plus--buffer-name (&optional frame)
-  "Name of FRAME's (default: the selected frame's) Ilist buffer."
-  (format "*IListPlus[%d]*" (ilist-plus--frame-id (or frame (selected-frame)))))
+(defun ilist-plus--buffer-name (&optional frame allocate)
+  "Name of FRAME's (default: the selected frame's) Ilist buffer.
+Nil if FRAME has no id yet; with ALLOCATE, give it one."
+  (let ((id (ilist-plus--frame-id (or frame (selected-frame)) allocate)))
+    (and id (format "*IListPlus[%d]*" id))))
 
 (defun ilist-plus--buffer (&optional frame)
   "FRAME's (default: the selected frame's) Ilist buffer, or nil if it has none."
-  (get-buffer (ilist-plus--buffer-name frame)))
+  (let ((name (ilist-plus--buffer-name frame)))
+    (and name (get-buffer name))))
 
 (defun ilist-plus--ilist-buffer-p (buffer)
   "Non-nil if BUFFER is a live Ilist buffer."
@@ -325,7 +329,7 @@ share its original's Ilist buffer.  The id is reassigned on next use."
   "Create or return the  FRAME's  IlistPlus buffer.
 Default to the current frame if FRAME isn't supplied."
   (let* ((frame (or frame (selected-frame)))
-         (buffer (get-buffer-create (ilist-plus--buffer-name frame))))
+         (buffer (get-buffer-create (ilist-plus--buffer-name frame t))))
     (with-current-buffer buffer
       (unless (derived-mode-p 'ilist-plus-major-mode)
         (ilist-plus-major-mode))
