@@ -408,18 +408,44 @@ Assigned on first use as the lowest id not held by another frame."
     map)
   "Default keymap for the modeline.")
 
+(defvar ilist-plus-sort-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] #'ilist-plus-cycle-sort)
+    (define-key map [header-line mouse-1] #'ilist-plus-cycle-sort)
+    map)
+  "Keymap of the sort indicator in the Ilist mode-line.")
+
+(defun ilist-plus-mode-line-icon ()
+  "The Ilist mode-line icon, propertized with `ilist-plus-icon-face'."
+  (propertize "󰉹" 'face 'ilist-plus-icon-face))
+
+(defun ilist-plus-mode-line-sort ()
+  "The clickable \"[sort]\" indicator of the current Ilist buffer."
+  (propertize (format "[%s]" (ilist-plus-current-sort ilist-plus--source))
+              'help-echo "mouse-1: switch the sort order"
+              'mouse-face 'mode-line-highlight
+              'local-map ilist-plus-sort-map))
+
+(defun ilist-plus-mode-line-label ()
+  "Icon, source buffer name and sort indicator of the current Ilist buffer.
+Nil when the source buffer is gone."
+  (when (buffer-live-p ilist-plus--source)
+    (concat (ilist-plus-mode-line-icon) " "
+            (propertize (buffer-name ilist-plus--source) 'face 'mode-line-buffer-id)
+            "  " (ilist-plus-mode-line-sort))))
+
 (defun ilist-plus--build-mode-line-format (&optional key-map)
-  "Build a value for `imenu-list-mode-line-format' using KEY-MAP."
+  "Build the Ilist mode-line format, with KEY-MAP on all but the sort indicator."
   `("%e"
     (:propertize
      ("" mode-line-frame-identification
-      (:propertize "󰉹" face ilist-plus-icon-face) " "
-      (:eval (buffer-name ilist-plus--source)) "  "
-      (:eval (format "[%s]" (ilist-plus-current-sort ilist-plus--source))) "  "
-      mode-line-end-spaces)
+      (:eval (ilist-plus-mode-line-icon)) " "
+      (:eval (buffer-name ilist-plus--source)))
      help-echo "mouse-1: close the window"
      mouse-face mode-line-highlight
-     local-map ,(or key-map ilist-plus-default-key-map))))
+     local-map ,(or key-map ilist-plus-default-key-map))
+    "  " (:eval (ilist-plus-mode-line-sort)) "  "
+    mode-line-end-spaces))
 
 (defconst ilist-plus-collapsed-marker "▶"
   "Marker shown for a folded (hidden) entry.
@@ -999,9 +1025,9 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
 
 ;; `ilist-plus--insert-entries' erases and rebuilds the whole Ilist buffer
 ;; whenever the source buffer's imenu entries actually change (e.g. a real
-;; edit triggers a reindex, or the displayed buffer changed) -- that wipes
-;; our fold overlays. `ilist-plus-fold-below-depth-once' (run from
-;; `ilist-plus--update-1' right after every update) recreates them
+;; edit triggers a reindex, or the displayed buffer changed). That wipes
+;; our fold overlays but `ilist-plus-fold-below-depth-once' (run from
+;; `ilist-plus--update-inner' right after every update) recreates them
 ;; from `ilist-plus--folded-paths', so nothing extra is needed here.
 
 ;; TAB is a separate, keyboard-only concern: `button-map' (which
@@ -1170,8 +1196,9 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
         (with-selected-window window
           (hl-line-highlight))))))
 
-(defun ilist-plus--update-1 (ibuf force)
-  "Update the Ilist buffer IBUF from the current (source) buffer's point."
+(defun ilist-plus--update-inner (ibuf force)
+  "Update the Ilist buffer IBUF from the current (source) buffer's point.
+FORCE will always do an update even if nothing has changed."
   (catch 'index-failure
     (let ((old-entries (buffer-local-value 'ilist-plus--entries ibuf))
           (last-location (buffer-local-value 'ilist-plus--last-location ibuf))
@@ -1223,7 +1250,7 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
           (with-current-buffer src
             (save-excursion
               (goto-char pos)
-              (ilist-plus--update-1 ibuf force))))))))
+              (ilist-plus--update-inner ibuf force))))))))
 
 (defun ilist-plus--refresh (ibuf)
   "Rebuild the Ilist buffer IBUF from its source buffer."
@@ -1472,6 +1499,21 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
       ;; mode line update to add the sort message.
       (force-mode-line-update))
     (ilist-plus--refresh ibuf)))
+
+(defun ilist-plus-cycle-sort (event)
+  "Switch the sort order of the Ilist clicked in EVENT to the next available one."
+  (interactive "e")
+  (with-current-buffer (window-buffer (posn-window (event-start event)))
+    (let* ((src ilist-plus--source)
+           (choices (with-current-buffer src
+                      (unless (memq imenu-create-index-function
+                                    '(ilist-plus-java-ts-index ilist-plus-elisp-index))
+                        (user-error "Sort switching is only available for treesitter or elisp imenus"))
+                      (append '(position alphabetical)
+                              (when (eq imenu-create-index-function 'ilist-plus-elisp-index)
+                                '(by-type)))))
+           (current (or (buffer-local-value 'ilist-plus-sort-strategy src) 'position)))
+      (ilist-plus-switch-sort (or (cadr (memq current choices)) (car choices))))))
 
 ;; Guard the java-ts indexer and its helpers the same way as the treesit
 ;; node-name helpers above: only defined when `treesit' is available.
@@ -1964,7 +2006,6 @@ IBUF covering a source section with a pending `diff-hl' change, via
 
 (defun ilist-plus-mode--enable ()
   (ilist-plus--modus-apply-heading-colors)
-  (setq ilist-plus-mode-line-format (ilist-plus--build-mode-line-format))
   (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format))
     (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
     (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format)))
@@ -1976,15 +2017,17 @@ IBUF covering a source section with a pending `diff-hl' change, via
       (when (derived-mode-p 'emacs-lisp-mode)
         (ilist-plus--elisp-mode-setup))))
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
-  ;; Keeps existing `imenu-list-smart-toggle' key bindings working.
-  (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle))
+  ;; Keeps existing `imenu-list-smart-toggle' key bindings working if in compat mode
+  (when ilist-plus-imenu-list-compat
+    (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle)))
 
 (defun ilist-plus-mode--disable ()
   (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format))
     (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format))
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
-  (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle))
+  (when ilist-plus-imenu-list-compat
+    (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle)))
 
 ;;;###autoload
 (define-minor-mode ilist-plus-mode
