@@ -332,7 +332,7 @@ modeline.el is loaded) is supplied.")
 
 (defconst ilist-plus-collapsed-marker "▶"
   "Marker shown for a folded (hidden) imenu-list entry -- in the
-`classic' `ilist-plus-tree-style' it replaces the leading \"+\"; in
+`classic' `ilist-plus-tree-style' it precedes the container's name; in
 `straight'/`curved' it replaces the container's own connector cell.
 Shared by all three styles.")
 
@@ -360,14 +360,13 @@ away instead of waiting for the next unrelated refresh."
   "Visual style used to render *Ilist* entry indentation and the
 container fold marker.
 
-`classic'  -- imenu-list's original look: plain indentation with a
-              leading \"+ \" marker (swapped for ▶/▼ by ilist-plus).
+`classic'  -- plain indentation with a leading ▶/▼ marker.
 `straight' -- unicode box-drawing tree lines (├─ └─ │); a collapsed
               container's own connector is replaced by ▶, and an
               expanded container shows no marker at all.
 `curved'   -- same as `straight' but with rounded corners (╰─ instead
               of └─); the collapsed marker is the same ▶ glyph."
-  :type '(choice (const :tag "Classic (+/indent)" classic)
+  :type '(choice (const :tag "Classic (indent)" classic)
                   (const :tag "Straight tree lines" straight)
                   (const :tag "Curved tree lines" curved))
   :set #'ilist-plus--set-tree-style
@@ -447,7 +446,7 @@ ANCESTOR-LASTS are as in `ilist-plus--tree-ancestor-prefix'/
 
 For a container, its own connector cell is part of the button's label,
 not text inserted ahead of it, so a click anywhere on the connector
-toggles the fold, the same as clicking the leading \"+\" does in
+toggles the fold, the same as clicking the marker does in
 `classic' style. A leaf's branch cell stays outside its button, matching
 `classic', where the indentation ahead of a leaf's name is likewise
 unclickable. Root entries -- leaf or container -- get no cell at all, so

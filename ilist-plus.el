@@ -252,14 +252,15 @@ that variable is bound, otherwise `ilist-plus-NAME'."
 
 ;; Every frame gets its own outline buffer, named `*IListPlus[N]*' where N is a small
 ;; per-frame id, so each frame tracks and folds independently.  All of a buffer's
-;; state lives in buffer-local variables of that Ilist buffer.
+;; state lives in buffer-local variables of that IlistPlus buffer.
 
 (defvar-local ilist-plus--frame nil
   "The frame this `*IListPlus[N]*' buffer belongs to.")
 
 (defvar-local ilist-plus--entries nil
-  "The imenu index of `ilist-plus--source', as shown in this Ilist buffer.")
+  "The raw imenu index of `ilist-plus--source' as shown in this Ilist buffer.")
 
+;; This stores the processed nodes I build out of the raw imenu index entries.
 (defvar-local ilist-plus--line-entries nil
   "Entries of `ilist-plus--entries' in display order, one per line.")
 
@@ -456,7 +457,7 @@ Nil when the source buffer is gone."
 
 (defconst ilist-plus-collapsed-marker "▶"
   "Marker shown for a folded (hidden) entry.
-In the `classic' `ilist-plus-tree-style' it replaces the leading \"+\";
+In the `classic' `ilist-plus-tree-style' it precedes the container's name;
 in `straight'/`curved' it replaces the container's own connector cell.
 Shared by all three styles.")
 
@@ -476,14 +477,13 @@ visible right away instead of waiting for the next unrelated refresh."
 
 (defcustom ilist-plus-tree-style 'classic
   "Visual style used to render *IlistPlus* entry indentation and folds.
-`classic'  -- imenu-list's original look: plain indentation with a
-              leading \"+ \" marker (swapped for ▶/▼ by ilist-plus).
+`classic'  -- plain indentation with a leading ▶/▼ marker.
 `straight' -- unicode box-drawing tree lines (├─ └─ │); a collapsed
               container's own connector is replaced by ▶, and an
               expanded container shows no marker at all.
 `curved'   -- same as `straight' but with rounded corners (╰─ instead
               of └─); the collapsed marker is the same ▶ glyph."
-  :type '(choice (const :tag "Classic (+/indent)" classic)
+  :type '(choice (const :tag "Classic (indent)" classic)
                  (const :tag "Straight tree lines" straight)
                  (const :tag "Curved tree lines" curved))
   :set #'ilist-plus--set-tree-style
@@ -512,7 +512,7 @@ visible right away instead of waiting for the next unrelated refresh."
                                 (:copier nil))
   "One line of the outline, built by `ilist-plus--build-nodes'.
 It holds what the renderer and the fold code need to know about a line,
-so neither has to thread depth or sibling state through recursion."
+so neither has to get thread depth or sibling state through recursion."
   (entry nil :documentation "The imenu entry shown on the line.")
   (depth 0 :documentation "Nesting depth; 0 for top-level entries.")
   (last-child nil
@@ -618,7 +618,7 @@ when they exist, so their customizations carry over."
         (depth (ilist-plus--node-depth node)))
     (insert (ilist-plus--depth-string depth))
     (if (ilist-plus--node-container-p node)
-        (insert-button (format "+ %s" (car entry))
+        (insert-button (format "%s %s" ilist-plus-expanded-marker (car entry))
                        'face (ilist-plus--get-face depth t)
                        'help-echo (format "Toggle: %s" (car entry))
                        'follow-link t
@@ -636,7 +636,7 @@ STYLE is `straight' or `curved'.
 
 For a container, its own connector cell is part of the button's label,
 not text inserted ahead of it, so a click anywhere on the connector
-toggles the fold, the same as clicking the leading \"+\" does in
+toggles the fold, the same as clicking the marker does in
 `classic' style.  A leaf's branch cell stays outside its button,
 matching `classic', where the indentation ahead of a leaf's name is
 likewise unclickable."
@@ -688,12 +688,10 @@ likewise unclickable."
            (folded (ilist-plus--folded-p (min (point-max) (1+ eol))))
            (inhibit-read-only t))
       (if (eq ilist-plus-tree-style 'classic)
-          (when (looking-at "^ *\\(\\+\\) ")
+          (when (looking-at (concat "^ *\\(" (regexp-quote ilist-plus-expanded-marker) "\\) "))
             (put-text-property (match-beginning 1) (match-end 1)
                                'display
-                               (if folded
-                                   ilist-plus-collapsed-marker
-                                 ilist-plus-expanded-marker)))
+                               (when folded ilist-plus-collapsed-marker)))
         (let ((slot-beg (text-property-any (point) eol 'ilist-plus-fold-marker t)))
           (when slot-beg
             (let ((slot-end (next-single-property-change slot-beg 'ilist-plus-fold-marker nil eol)))
@@ -839,8 +837,7 @@ Ilist buffer.  Top-level entries are depth 1."
         (t nil)))
 
 (defun ilist-plus--remove-paths-with-prefix (prefix paths)
-  "Return PATHS with PREFIX, and every path that has PREFIX as an
-  ancestor, removed."
+  "Return all the paths in PATHS that don't start with PREFIX."
   (let (result)
     (dolist (path paths)
       (unless (ilist-plus--path-prefix-p prefix path)
@@ -848,18 +845,10 @@ Ilist buffer.  Top-level entries are depth 1."
     (nreverse result)))
 
 (defun ilist-plus--update-folded-paths (fn)
-  "Apply FN to the *source* buffer's saved `ilist-plus--folded-paths'
-  and store the result back. FN receives the existing path list and
-  returns the new one.
-
-  Used by the fold commands to make a targeted, incremental edit to the
+  "Map FN on the *source* buffer's saved folded paths.
+Used by the fold commands to make a targeted, incremental edit to the
   saved fold snapshot, instead of rescanning every container's *current*
-  visibility (as `ilist-plus--record-folded-paths' does). A full rescan
-  is wrong here because it would also see -- and wrongly persist -- the
-  temporarily unfolded state of whatever container
-  `ilist-plus-reveal-current-entry' has un-hidden elsewhere in the tree,
-  permanently forgetting that it should be folded again once point
-  leaves it."
+  visibility as `ilist-plus--record-folded-paths' does."
   (let ((src ilist-plus--source))
     (when (buffer-live-p src)
       (with-current-buffer src
@@ -1908,7 +1897,7 @@ pending `diff-hl' change."
   :group 'ilist-plus)
 
 (defun ilist-plus--modus-apply-heading-colors ()
-  "Set `ilist-plus-entry-face-N' foregrounds to the Modus `fg-heading-(N+1)' colors."
+  "Set header foreground colors to the Modus `fg-heading-(N+1)' colors."
   (when (fboundp 'modus-themes-get-color-value)
     (dotimes (n 4)
       (set-face-attribute
