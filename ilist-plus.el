@@ -308,15 +308,15 @@ Assigned on first use as the lowest id not held by another frame."
     (when buffer
       (kill-buffer buffer))))
 
-(defun ilist-plus--buffer-create (&optional frame)
-  "FRAME's (default: the selected frame's) Ilist buffer, created if needed."
+(defun ilist-plus--get-buffer (&optional frame)
+  "Create or return the  FRAME's  IlistPlus buffer.
+Default to the current frame if FRAME isn't supplied."
   (let* ((frame (or frame (selected-frame)))
          (buffer (get-buffer-create (ilist-plus--buffer-name frame))))
     (with-current-buffer buffer
       (unless (derived-mode-p 'ilist-plus-major-mode)
         (ilist-plus-major-mode))
       (setq ilist-plus--frame frame))
-    (add-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
     buffer))
 
 (defun ilist-plus--current-ibuf ()
@@ -402,6 +402,13 @@ Assigned on first use as the lowest id not held by another frame."
       (modus-themes-get-color-value name overrides)
     (or fallback "black")))
 
+;; `mode-line-highlight' usually draws a box, which adds pixels around the hovered text and shifts
+;; the icon; drop the box so hovering only changes colors.
+(defface ilist-plus-mode-line-highlight
+  '((t (:inherit mode-line-highlight :box nil)))
+  "Face for the hovered parts of the Ilist mode-line."
+  :group 'ilist-plus)
+
 (defvar ilist-plus-default-key-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mode-line mouse-1] #'quit-window)
@@ -423,7 +430,7 @@ Assigned on first use as the lowest id not held by another frame."
   "The clickable \"[sort]\" indicator of the current Ilist buffer."
   (propertize (format "[%s]" (ilist-plus-current-sort ilist-plus--source))
               'help-echo "mouse-1: switch the sort order"
-              'mouse-face 'mode-line-highlight
+              'mouse-face 'ilist-plus-mode-line-highlight
               'local-map ilist-plus-sort-map))
 
 (defun ilist-plus-mode-line-label ()
@@ -440,9 +447,9 @@ Nil when the source buffer is gone."
     (:propertize
      ("" mode-line-frame-identification
       (:eval (ilist-plus-mode-line-icon)) " "
-      (:eval (buffer-name ilist-plus--source)))
+      (:eval (and (buffer-live-p ilist-plus--source) (buffer-name ilist-plus--source))))
      help-echo "mouse-1: close the window"
-     mouse-face mode-line-highlight
+     mouse-face ilist-plus-mode-line-highlight
      local-map ,(or key-map ilist-plus-default-key-map))
     "  " (:eval (ilist-plus-mode-line-sort)) "  "
     mode-line-end-spaces))
@@ -1102,6 +1109,8 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (let ((source (current-buffer))
         (entries imenu--index-alist))
     (with-current-buffer ibuf
+      (unless (eq ilist-plus--source source)
+        (force-mode-line-update))
       (setq ilist-plus--entries entries
             ilist-plus--source source))))
 
@@ -1314,7 +1323,7 @@ FORCE will always do an update even if nothing has changed."
 (defun ilist-plus--open ()
   "Show the selected frame's Ilist, built from the current buffer."
   (let ((source (current-buffer))
-        (ibuf (ilist-plus--buffer-create)))
+        (ibuf (ilist-plus--get-buffer)))
     (ilist-plus-reset-fold-state (ilist-plus--live-sources))
     (ilist-plus--start-timer)
     (if (ilist-plus--opt 'focus-after-activation)
@@ -2017,6 +2026,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
       (when (derived-mode-p 'emacs-lisp-mode)
         (ilist-plus--elisp-mode-setup))))
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
+  (add-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
   ;; Keeps existing `imenu-list-smart-toggle' key bindings working if in compat mode
   (when ilist-plus-imenu-list-compat
     (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle)))
@@ -2026,6 +2036,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
     (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format))
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
+  (remove-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
   (when ilist-plus-imenu-list-compat
     (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle)))
 
