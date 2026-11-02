@@ -1969,6 +1969,12 @@ IBUF covering a source section with a pending `diff-hl' change, via
     (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
     (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format)))
   (add-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
+  ;; The hook only fires for buffers created from now on; the mode is often enabled lazily, so
+  ;; give already-open elisp buffers the Sections/Use-package entries the hierarchy needs.
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'emacs-lisp-mode)
+        (ilist-plus--elisp-mode-setup))))
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   ;; Keeps existing `imenu-list-smart-toggle' key bindings working.
   (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle))
