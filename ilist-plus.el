@@ -150,6 +150,7 @@
 (declare-function window--display-buffer window.el)
 
 (defvar imenu--index-alist)
+(defvar ilist-plus-sort-strategy)
 
 ;;; General UI changes
 (defgroup ilist-plus nil
@@ -581,6 +582,34 @@ Top-level entries are level 1, as `ilist-plus-autofold-depth' counts them."
       (walk index-alist nil nil))
     (nreverse nodes)))
 
+(defvar-local ilist-plus--nodes-cache nil
+  "Cons of the `ilist-plus--entries' list and the node vector built from it.")
+
+(defun ilist-plus--nodes ()
+  "The `ilist-plus--node' vector for `ilist-plus--entries'.
+Built once per entries list, not once per caller."
+  (unless (eq (car ilist-plus--nodes-cache) ilist-plus--entries)
+    (setq ilist-plus--nodes-cache
+          (cons ilist-plus--entries
+                (vconcat (ilist-plus--build-nodes ilist-plus--entries)))))
+  (cdr ilist-plus--nodes-cache))
+
+(defvar-local ilist-plus--line-starts-cache nil
+  "Cons of `buffer-chars-modified-tick' and the vector of line start positions.")
+
+(defun ilist-plus--line-starts ()
+  "A vector of the buffer position at which each line of this buffer starts."
+  (let ((tick (buffer-chars-modified-tick)))
+    (unless (eql (car ilist-plus--line-starts-cache) tick)
+      (let (starts)
+        (save-excursion
+          (goto-char (point-min))
+          (while (not (eobp))
+            (push (point) starts)
+            (forward-line 1)))
+        (setq ilist-plus--line-starts-cache (cons tick (vconcat (nreverse starts))))))
+    (cdr ilist-plus--line-starts-cache)))
+
 (defun ilist-plus--tree-ancestor-prefix (ancestor-last-children)
   "Return the ancestor-guide prefix for ANCESTOR-LAST-CHILDREN.
 ANCESTOR-LAST-CHILDREN lists, outermost to immediate parent, whether
@@ -691,9 +720,9 @@ likewise unclickable."
 (defun ilist-plus--insert-entries ()
   "Rebuild the current IlistPlus buffer."
   (let ((inhibit-read-only t)
-        (nodes (ilist-plus--build-nodes ilist-plus--entries)))
+        (nodes (ilist-plus--nodes)))
     (erase-buffer)
-    (dolist (node nodes)
+    (seq-doseq (node nodes)
       (if (eq ilist-plus-tree-style 'classic)
           (ilist-plus--insert-node-classic node)
         (ilist-plus--insert-node-tree node ilist-plus-tree-style)))
@@ -764,11 +793,11 @@ likewise unclickable."
 
 (defun ilist-plus--subtree-end (nodes n start)
   "Return the index of the first node after START outside START's subtree.
-NODES is the list of `ilist-plus--node's and N its length.  Return N
+NODES is the vector of `ilist-plus--node's and N its length.  Return N
 when the subtree runs to the end."
   (let ((i (1+ start))
-        (depth (ilist-plus--node-depth (nth start nodes))))
-    (while (and (< i n) (> (ilist-plus--node-depth (nth i nodes)) depth))
+        (depth (ilist-plus--node-depth (aref nodes start))))
+    (while (and (< i n) (> (ilist-plus--node-depth (aref nodes i)) depth))
       (setq i (1+ i)))
     i))
 
@@ -778,15 +807,10 @@ Calculated from the start of line I+1 (i.e. *after* I's own header line
   and its newline, so the header keeps its own line break and stays on
   its own visual line) to the start of line END-I (or `point-max' if
   END-I runs past the last entry, of N total)."
-  (save-excursion
-    (goto-char (point-min))
-    (forward-line (1+ i))
-    (let ((beg (point)))
-      (cons beg (if (>= end-i n)
-                    (point-max)
-                  (goto-char (point-min))
-                  (forward-line end-i)
-                  (point))))))
+  (let* ((starts (ilist-plus--line-starts))
+         (len (length starts)))
+    (cons (if (< (1+ i) len) (aref starts (1+ i)) (point-max))
+          (if (and (< end-i n) (< end-i len)) (aref starts end-i) (point-max)))))
 
 (defvar ilist-plus-major-mode-map
   (let ((map (make-sparse-keymap)))
@@ -839,10 +863,10 @@ Ilist buffer.  Top-level entries are depth 1."
   (interactive)
   (let ((depth (or depth ilist-plus-autofold-depth)))
     (with-current-buffer (or ibuf (ilist-plus--current-ibuf))
-      (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+      (let* ((nodes (ilist-plus--nodes))
              (n (length nodes)))
         (dotimes (i n)
-          (let ((node (nth i nodes)))
+          (let ((node (aref nodes i)))
             (when (and (ilist-plus--node-container-p node)
                        (= (ilist-plus--node-level node) depth))
               (let* ((end-i (ilist-plus--subtree-end nodes n i))
@@ -897,10 +921,10 @@ Ilist is rebuilt, e.g. after switching buffers or after a reindex."
     (when (and ilist (buffer-live-p src))
       (let (folded)
         (with-current-buffer ilist
-          (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+          (let* ((nodes (ilist-plus--nodes))
                  (n (length nodes)))
             (dotimes (i n)
-              (let ((node (nth i nodes)))
+              (let ((node (aref nodes i)))
                 (when (ilist-plus--node-container-p node)
                   (let* ((end-i (ilist-plus--subtree-end nodes n i))
                          (span (ilist-plus--line-span n i end-i)))
@@ -916,10 +940,10 @@ Matching by name path rather than position lets folds survive a rebuild
 even if entries shifted lines."
   (ilist-plus--show-region (point-min) (point-max))
   (when paths
-    (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+    (let* ((nodes (ilist-plus--nodes))
            (n (length nodes)))
       (dotimes (i n)
-        (let ((node (nth i nodes)))
+        (let ((node (aref nodes i)))
           (when (and (ilist-plus--node-container-p node)
                      (member (ilist-plus--node-path node) paths))
             (let* ((end-i (ilist-plus--subtree-end nodes n i))
@@ -978,10 +1002,11 @@ always reset to a fully shown state before it is refolded."
   (interactive)
   (let ((depth (or depth 1)))
     (with-current-buffer (ilist-plus--current-ibuf)
-      (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+      (let* ((nodes (ilist-plus--nodes))
              (n (length nodes))
              (start (1- (line-number-at-pos (point))))
-             (base (nth start nodes))
+             (base (or (and (< start n) (aref nodes start))
+                       (user-error "No entry on this line")))
              (target-level (+ (ilist-plus--node-level base) depth))
              (end (ilist-plus--subtree-end nodes n start)))
         (let ((span (ilist-plus--line-span n start end)))
@@ -989,7 +1014,7 @@ always reset to a fully shown state before it is refolded."
           (ilist-plus--unfold-path (ilist-plus--node-path base)))
         (let ((i (1+ start)))
           (while (< i end)
-            (let ((node (nth i nodes)))
+            (let ((node (aref nodes i)))
               (when (and (ilist-plus--node-container-p node)
                          (= (ilist-plus--node-level node) target-level))
                 (let* ((sub-end (ilist-plus--subtree-end nodes n i))
@@ -1005,10 +1030,10 @@ always reset to a fully shown state before it is refolded."
 Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (interactive)
   (with-current-buffer (ilist-plus--current-ibuf)
-    (let* ((nodes (ilist-plus--build-nodes ilist-plus--entries))
+    (let* ((nodes (ilist-plus--nodes))
            (n (length nodes))
            (start (1- (line-number-at-pos (point))))
-           (node (nth start nodes)))
+           (node (and (< start n) (aref nodes start))))
       (when (and node (ilist-plus--node-container-p node))
         (let* ((end (ilist-plus--subtree-end nodes n start))
                (span (ilist-plus--line-span n start end)))
@@ -1102,28 +1127,41 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (imenu--make-index-alist)
   (ilist-plus-sort-advice))
 
-;; Rescanning makes imenu walk the whole buffer for headings each time the Ilist updates, even
-;; when nothing has changed since the last scan. Skip that for org buffers that haven't been
-;; modified since we last collected entries, and reuse the previously generated tree.
+;; Rescanning makes imenu walk the whole buffer each time the Ilist updates, even when nothing has
+;; changed since the last scan. Skip that for buffers that haven't been modified, and whose indexing
+;; setup hasn't changed, since we last collected entries, and reuse the previously generated tree.
+;; A forced update always rescans, since some indexers (eglot) change without the buffer changing.
 (defvar-local ilist-plus--last-tick nil
   "`buffer-chars-modified-tick' as of the last imenu rescan for the Ilist.")
 
-(defun ilist-plus--collect-entries (ibuf)
+(defvar-local ilist-plus--last-index-setup nil
+  "What determined the index at the last imenu rescan for the Ilist.")
+
+(defun ilist-plus--index-setup ()
+  "The current buffer's settings that, besides its text, determine its index."
+  (list ilist-plus-sort-strategy imenu-create-index-function imenu-generic-expression))
+
+(defun ilist-plus--collect-entries (ibuf &optional force)
   "Index the current buffer into IBUF, the Ilist buffer to show it in.
-  Signals `imenu-unavailable' when the buffer has no index."
-  (unless (and (derived-mode-p 'org-mode)
+Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
+Signals `imenu-unavailable' when the buffer has no index."
+  (unless (and (not force)
                imenu--index-alist
                ilist-plus--last-tick
-               (= ilist-plus--last-tick (buffer-chars-modified-tick)))
+               (= ilist-plus--last-tick (buffer-chars-modified-tick))
+               (equal ilist-plus--last-index-setup (ilist-plus--index-setup)))
     (ilist-plus--rescan-imenu)
-    (setq ilist-plus--last-tick (buffer-chars-modified-tick)))
+    (setq ilist-plus--last-tick (buffer-chars-modified-tick)
+          ilist-plus--last-index-setup (copy-tree (ilist-plus--index-setup))))
   (let ((source (current-buffer))
         (entries imenu--index-alist))
     (with-current-buffer ibuf
       (unless (eq ilist-plus--source source)
         (force-mode-line-update))
-      (setq ilist-plus--entries entries
-            ilist-plus--source source))))
+      ;; Keep the old list when the index is unchanged so the cached nodes stay valid.
+      (unless (equal ilist-plus--entries entries)
+        (setq ilist-plus--entries entries))
+      (setq ilist-plus--source source))))
 
 (defun ilist-plus--clear (ibuf)
   "Empty the Ilist buffer IBUF."
@@ -1158,20 +1196,23 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
 ;; that heading's own position, even for headings that end up container-only (i.e. any heading with
 ;; a child heading, like "IMenu" in tour.org). Recover that so point-in-container also highlights
 ;; the container's own line instead of falling back to the previous sibling.
-(defun ilist-plus--entry-position (entry)
-  "Return a comparable buffer position for ENTRY, or nil if none exists."
+(defun ilist-plus--entry-position (entry &optional translator)
+  "Return a comparable buffer position for ENTRY, or nil if none exists.
+TRANSLATOR is `ilist-plus--position-translator''s value for the source
+buffer; pass it when looking up many entries so it is only made once."
   (if (imenu--subalist-p entry)
       (get-text-property 0 'org-imenu-marker (car entry))
-    (funcall (ilist-plus--position-translator)
+    (funcall (or translator (ilist-plus--position-translator))
              (if (listp (cdr entry)) (cadr entry) (cdr entry)))))
 
 (defun ilist-plus--current-entry (line-entries)
   "The entry of LINE-ENTRIES that point in the current (source) buffer is in."
   (let ((point-pos (point-marker))
         (offset (point-min-marker))
+        (translator (ilist-plus--position-translator))
         match-entry)
     (dolist (entry line-entries match-entry)
-      (let ((entry-pos (ilist-plus--entry-position entry)))
+      (let ((entry-pos (ilist-plus--entry-position entry translator)))
         (when (and entry-pos (<= offset entry-pos point-pos))
           (setq offset entry-pos)
           (setq match-entry entry))))))
@@ -1182,7 +1223,7 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
     (when window
       (let* ((line-entries (buffer-local-value 'ilist-plus--line-entries ibuf))
              (line (cl-position (ilist-plus--current-entry line-entries)
-                                line-entries :test #'equal)))
+                                line-entries :test #'eq)))
         (with-selected-window window
           (goto-char (point-min))
           (forward-line (or line 0))
@@ -1231,13 +1272,13 @@ FORCE will always do an update even if nothing has changed."
         (with-current-buffer ibuf
           (setq ilist-plus--last-location location))
         (condition-case nil
-            (ilist-plus--collect-entries ibuf)
+            (ilist-plus--collect-entries ibuf force)
           (imenu-unavailable
            (if (ilist-plus--opt 'persist-when-imenu-index-unavailable)
                (throw 'index-failure nil)
              (ilist-plus--clear ibuf))))
         (when (or force
-                  (not (equal old-entries (buffer-local-value 'ilist-plus--entries ibuf))))
+                  (not (eq old-entries (buffer-local-value 'ilist-plus--entries ibuf))))
           (with-current-buffer ibuf
             (ilist-plus--insert-entries)))
         (when (ilist-plus--opt 'update-current-entry)
@@ -1948,7 +1989,7 @@ pending `diff-hl' change."
           (setq ovs (cdr ovs)))
         found))))
 
-(defun ilist-plus--entry-range (entry buffer)
+(defun ilist-plus--entry-range (entry buffer &optional translator)
   "ENTRY's true (BEG . END) span, or nil if it has no position of its
 own or BUFFER's indexer doesn't tag ranges (see
 `ilist-plus--range-table', elisp-only via
@@ -1958,14 +1999,15 @@ distinct marker objects at the same buffer position are not `eql') in
 BUFFER's range table -- this works for the synthetic \"\" declaration leaf
 `ilist-plus-elisp-build-header' fabricates for a Section/Subsection header
 too, since that leaf's position is the same raw position the header's own
-leaf in RAW was keyed under when the table was built."
-  (let ((pos (ilist-plus--entry-position entry)))
+leaf in RAW was keyed under when the table was built.
+TRANSLATOR is as for `ilist-plus--entry-position'."
+  (let ((pos (ilist-plus--entry-position entry translator)))
     (when pos
       (let ((key (if (markerp pos) (marker-position pos) pos))
             (table (buffer-local-value 'ilist-plus--range-table buffer)))
         (and table (gethash key table))))))
 
-(defun ilist-plus--mark-modified (entries buffer index-table leaf-modified)
+(defun ilist-plus--mark-modified (entries buffer index-table leaf-modified &optional translator)
   "Mark LEAF-MODIFIED (via INDEX-TABLE, a hash table from entry to its
 index in the flattened, display-order list) for every leaf in ENTRIES --
 any nesting depth -- whose own `ilist-plus--entry-range' overlaps a
@@ -1975,13 +2017,14 @@ OR, no separate span check of its own). Ranges are computed once, up
 front, from true physical adjacency across every entry regardless of
 category (see `ilist-plus-elisp-parse-and-tag-ranges'), so they already
 partition the buffer without any gaps. Returns non-nil if anything in
-ENTRIES or their descendants got marked."
+ENTRIES or their descendants got marked.  TRANSLATOR is as for
+`ilist-plus--entry-position'."
   (let (any-modified)
     (dolist (entry entries)
       (let ((modified
              (if (imenu--subalist-p entry)
-                 (ilist-plus--mark-modified (cdr entry) buffer index-table leaf-modified)
-	       (let ((range (ilist-plus--entry-range entry buffer)))
+                 (ilist-plus--mark-modified (cdr entry) buffer index-table leaf-modified translator)
+	       (let ((range (ilist-plus--entry-range entry buffer translator)))
                  (and range (ilist-plus--section-modified-p (car range) (cdr range) buffer))))))
         (when modified
           (aset leaf-modified (gethash entry index-table) t)
@@ -1995,26 +2038,25 @@ IBUF covering a source section with a pending `diff-hl' change, via
   (let ((src-buf (buffer-local-value 'ilist-plus--source ibuf))
         (entries (buffer-local-value 'ilist-plus--entries ibuf)))
     (when (buffer-live-p src-buf)
-      (let* ((nodes (ilist-plus--build-nodes entries))
+      (let* ((nodes (with-current-buffer ibuf (ilist-plus--nodes)))
              (n (length nodes))
              (leaf-modified (make-vector n nil))
              (index-table (make-hash-table :test 'eq))
-             (i 0))
-        (dolist (node nodes)
-          (puthash (ilist-plus--node-entry node) i index-table)
-          (setq i (1+ i)))
-        (ilist-plus--mark-modified entries src-buf index-table leaf-modified)
+             (translator (with-current-buffer src-buf (ilist-plus--position-translator))))
+        (dotimes (i n)
+          (puthash (ilist-plus--node-entry (aref nodes i)) i index-table))
+        (ilist-plus--mark-modified entries src-buf index-table leaf-modified translator)
         (with-current-buffer ibuf
           (remove-overlays (point-min) (point-max) 'ilist-plus-modified t)
-          (let ((inhibit-read-only t))
-            (dotimes (i n)
-	      (when (aref leaf-modified i)
-                (save-excursion
-                  (goto-char (point-min))
-                  (forward-line i)
-                  (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
-                    (overlay-put ov 'ilist-plus-modified t)
-                    (overlay-put ov 'face 'ilist-plus-modified-face)))))))))))
+          (let ((starts (ilist-plus--line-starts))
+                (inhibit-read-only t))
+            (dotimes (i (min n (length starts)))
+              (when (aref leaf-modified i)
+                (let ((ov (make-overlay (aref starts i)
+                                        (save-excursion (goto-char (aref starts i))
+                                                        (line-end-position)))))
+                  (overlay-put ov 'ilist-plus-modified t)
+                  (overlay-put ov 'face 'ilist-plus-modified-face))))))))))
 
 
 ;;; Global minor mode

@@ -113,7 +113,7 @@ name of the synthetic declaration leaf it fabricates for every header
                    '(nil nil (nil) (nil) nil)))))
 
 (ert-deftest ilist-plus-test-subtree-end ()
-  (let ((nodes (ilist-plus--build-nodes ilist-plus-test--tree-simple)))
+  (let ((nodes (vconcat (ilist-plus--build-nodes ilist-plus-test--tree-simple))))
     (should (= (ilist-plus--subtree-end nodes (length nodes) 1) 4))
     (should (= (ilist-plus--subtree-end nodes (length nodes) 4) 5))))
 
@@ -706,6 +706,99 @@ name of the synthetic declaration leaf it fabricates for every header
 (ert-deftest ilist-plus-test-compat-flag-defaults-off-and-never-loads-imenu-list ()
   (should-not (default-value 'ilist-plus-imenu-list-compat))
   (should-not (featurep 'imenu-list)))
+
+(defmacro ilist-plus-test--with-counted-rescans (ibuf &rest body)
+  "Run BODY in a temp buffer, binding `rescans' to a count of index rescans."
+  (declare (indent 1))
+  `(let ((,ibuf (ilist-plus-test--reset-ilist-buffer "")))
+     (with-temp-buffer
+       (insert "some text\n")
+       (let ((rescans 0))
+         (cl-letf (((symbol-function 'ilist-plus--rescan-imenu)
+                    (lambda ()
+                      (setq rescans (1+ rescans))
+                      (setq imenu--index-alist (list (cons "stub" rescans))))))
+           ,@body)))))
+
+(ert-deftest ilist-plus-test-collect-entries-skips-unmodified-rescan-in-any-mode ()
+  (ilist-plus-test--with-counted-rescans ibuf
+    (ilist-plus--collect-entries ibuf)
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 1))
+    (insert "more")
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 2))))
+
+(ert-deftest ilist-plus-test-collect-entries-force-and-setup-changes-rescan ()
+  (ilist-plus-test--with-counted-rescans ibuf
+    (ilist-plus--collect-entries ibuf)
+    (ilist-plus--collect-entries ibuf t)
+    (should (= rescans 2))
+    (setq-local ilist-plus-sort-strategy 'alphabetical)
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 3))
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 3))))
+
+(ert-deftest ilist-plus-test-collect-entries-keeps-entries-list-when-unchanged ()
+  (let ((ibuf (ilist-plus-test--reset-ilist-buffer "")))
+    (with-temp-buffer
+      (insert "some text\n")
+      (let ((n 0))
+        (cl-letf (((symbol-function 'ilist-plus--rescan-imenu)
+                   (lambda () (setq imenu--index-alist (list (cons "same" (cl-incf n)))))))
+          (ilist-plus--collect-entries ibuf)
+          (let ((first (buffer-local-value 'ilist-plus--entries ibuf)))
+            (setq n 0)
+            (ilist-plus--collect-entries ibuf t)
+            (should (eq first (buffer-local-value 'ilist-plus--entries ibuf)))))))))
+
+;;; Cached nodes and line positions
+
+(ert-deftest ilist-plus-test-nodes-built-once-per-entries-list ()
+  (let ((builds 0)
+        (orig (symbol-function 'ilist-plus--build-nodes)))
+    (cl-letf (((symbol-function 'ilist-plus--build-nodes)
+               (lambda (entries) (cl-incf builds) (funcall orig entries))))
+      (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+      (with-current-buffer ilist-plus-test--ibuf
+        (ilist-plus--nodes)
+        (ilist-plus-fold-below-depth 1)
+        (ilist-plus--restore-folded-paths nil)
+        (ilist-plus-toggle-at-point)
+        (should (= builds 1))
+        (setq ilist-plus--entries (copy-tree ilist-plus-test--tree-simple))
+        (ilist-plus--nodes)
+        (should (= builds 2))))))
+
+(ert-deftest ilist-plus-test-toggle-at-point-past-last-entry-is-a-no-op ()
+  (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+  (with-current-buffer ilist-plus-test--ibuf
+    (goto-char (point-max))
+    (ilist-plus-toggle-at-point)
+    (should-not (ilist-plus--any-folded-p))
+    (should-error (ilist-plus-fold-children) :type 'user-error)))
+
+(ert-deftest ilist-plus-test-line-span-uses-current-line-positions ()
+  (ilist-plus-test--reset-ilist-buffer "A\nB\nC\nD\n" nil)
+  (with-current-buffer ilist-plus-test--ibuf
+    (should (equal (ilist-plus--line-span 4 0 2) '(3 . 5)))
+    (should (equal (ilist-plus--line-span 4 1 4) (cons 5 (point-max))))
+    (should (equal (ilist-plus--line-span 4 3 4) (cons (point-max) (point-max))))
+    (let ((inhibit-read-only t))
+      (goto-char (point-max))
+      (insert "E\n"))
+    (should (equal (ilist-plus--line-span 5 3 5) (cons 9 (point-max))))))
+
+(ert-deftest ilist-plus-test-position-translator-made-once-per-lookup-pass ()
+  (let ((made 0))
+    (cl-letf (((symbol-function 'ilist-plus--position-translator)
+               (lambda () (cl-incf made) #'identity)))
+      (with-temp-buffer
+        (insert (make-string 50 ?x))
+        (ilist-plus--current-entry
+         (mapcar (lambda (i) (cons (format "e%d" i) i)) (number-sequence 1 20)))
+        (should (= made 1))))))
 
 ;;; Multiple frames
 
