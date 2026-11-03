@@ -2,15 +2,19 @@
 
 ;;; Commentary:
 
-;; Run with (imenu-list and diff-hl must already be installed):
+;; Run with (diff-hl must already be installed):
 ;;   emacs -Q --batch --eval "(progn (require 'package) (package-initialize))" \
+;;     -l ilist-plus-test.el -f ert-run-tests-batch-and-exit
+;;
+;; Plain batch Emacs cannot create a second frame, so the multi-frame test is skipped there.
+;; To run it for real, give Emacs a terminal, e.g.:
+;;   script -q /dev/null emacs -nw -Q --eval "(progn (require 'package) (package-initialize))" \
 ;;     -l ilist-plus-test.el -f ert-run-tests-batch-and-exit
 
 ;;; Code:
 
 (require 'ert)
 (require 'cl-lib)
-(require 'imenu-list)
 (require 'diff-hl)
 (require 'org)
 (require 'treesit nil t)
@@ -31,20 +35,30 @@
 
 (defun ilist-plus-test--line-of (tree name)
   "0-based display line of the entry named NAME in flattened TREE."
-  (cl-position name (ilist-plus--flatten-entries tree 0)
-               :key (lambda (pair) (car (car pair))) :test #'equal))
+  (cl-position name (ilist-plus--build-nodes tree)
+               :key (lambda (node) (car (ilist-plus--node-entry node)))
+               :test #'equal))
 
 (defun ilist-plus-test--goto-line (n)
   (goto-char (point-min))
   (forward-line n))
 
-(defun ilist-plus-test--reset-ilist-buffer (text)
-  "Reset the shared *Ilist* buffer to TEXT, with no leftover overlays."
-  (with-current-buffer (get-buffer-create imenu-list-buffer-name)
+(defconst ilist-plus-test--ibuf "*IListPlus-test*"
+  "Name of the Ilist buffer the tests drive.")
+
+(defun ilist-plus-test--reset-ilist-buffer (text &optional entries source)
+  "Reset the test Ilist buffer to TEXT, showing ENTRIES of SOURCE, with no
+leftover overlays."
+  (with-current-buffer (get-buffer-create ilist-plus-test--ibuf)
+    (unless (derived-mode-p 'ilist-plus-major-mode)
+      (ilist-plus-major-mode))
     (let ((inhibit-read-only t))
       (erase-buffer)
       (remove-overlays (point-min) (point-max))
       (insert text))
+    (setq ilist-plus--entries entries
+          ilist-plus--source source
+          ilist-plus--line-entries nil)
     (current-buffer)))
 
 (defconst ilist-plus-test--decl (string #xf444)
@@ -69,24 +83,39 @@ name of the synthetic declaration leaf it fabricates for every header
         (custom-map (make-sparse-keymap)))
     (should (equal (car default) "%e"))
     (should (eq (plist-get (cddr (cadr default)) 'local-map)
-                ilist-plus-default-window-map))
+                ilist-plus-default-key-map))
     (let ((custom (ilist-plus--build-mode-line-format custom-map)))
       (should (eq (plist-get (cddr (cadr custom)) 'local-map) custom-map)))))
 
 ;;; Direct, hideshow-free folding
 
-(ert-deftest ilist-plus-test-flatten-entries ()
-  (let ((flat (ilist-plus--flatten-entries ilist-plus-test--tree-simple 0)))
-    (should (equal (mapcar (lambda (p) (cons (car (car p)) (cdr p))) flat)
-                   '(("A" . 0) ("B" . 0) ("B1" . 1) ("B2" . 1) ("C" . 0))))))
+(ert-deftest ilist-plus-test-build-nodes ()
+  (let ((nodes (ilist-plus--build-nodes ilist-plus-test--tree-simple)))
+    (should (equal (mapcar (lambda (node) (car (ilist-plus--node-entry node))) nodes)
+                   '("A" "B" "B1" "B2" "C")))
+    (should (equal (mapcar #'ilist-plus--node-depth nodes) '(0 0 1 1 0)))
+    (should (equal (mapcar #'ilist-plus--node-level nodes) '(1 1 2 2 1)))
+    (should (equal (mapcar #'ilist-plus--node-path nodes)
+                   '(("A") ("B") ("B" "B1") ("B" "B2") ("C"))))
+    (should (equal (mapcar #'ilist-plus--node-container-p nodes)
+                   '(nil t nil nil nil)))
+    (should (equal (mapcar #'ilist-plus--node-last-child nodes)
+                   '(nil nil nil t t)))))
 
-(ert-deftest ilist-plus-test-flatten-paths ()
-  (should (equal (ilist-plus--flatten-paths ilist-plus-test--tree-simple nil)
-                 '(("A") ("B") ("B" "B1") ("B" "B2") ("C")))))
+(ert-deftest ilist-plus-test-build-nodes-ancestor-last-children ()
+  (let ((nodes (ilist-plus--build-nodes
+                '(("Root" ("Child1" ("GC1" . 1) ("GC2" . 2)) ("Child2" . 3))))))
+    (should (equal (mapcar #'ilist-plus--node-last-child nodes)
+                   '(t nil nil t t)))
+    ;; A top-level entry is never drawn as a parent, so its own last-child
+    ;; stays out of its descendants' lists.
+    (should (equal (mapcar #'ilist-plus--node-ancestor-last-children nodes)
+                   '(nil nil (nil) (nil) nil)))))
 
 (ert-deftest ilist-plus-test-subtree-end ()
-  (let ((flat (ilist-plus--flatten-entries ilist-plus-test--tree-simple 0)))
-    (should (= (ilist-plus--subtree-end flat (length flat) 1 1) 4))))
+  (let ((nodes (vconcat (ilist-plus--build-nodes ilist-plus-test--tree-simple))))
+    (should (= (ilist-plus--subtree-end nodes (length nodes) 1) 4))
+    (should (= (ilist-plus--subtree-end nodes (length nodes) 4) 5))))
 
 (ert-deftest ilist-plus-test-hide-show-folded-p ()
   (with-temp-buffer
@@ -99,10 +128,10 @@ name of the synthetic declaration leaf it fabricates for every header
     (should-not (ilist-plus--folded-p 3))))
 
 (ert-deftest ilist-plus-test-fold-below-depth ()
-  (let ((imenu-list--imenu-entries ilist-plus-test--tree-simple))
-    (ilist-plus-test--reset-ilist-buffer "A\n+ B\n  B1\n  B2\nC\n")
-    (ilist-plus-fold-below-depth 1)
-    (with-current-buffer imenu-list-buffer-name
+  (progn
+    (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+    (ilist-plus-fold-below-depth 1 ilist-plus-test--ibuf)
+    (with-current-buffer ilist-plus-test--ibuf
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-simple "B1"))
       (should (ilist-plus--folded-p (point)))
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-simple "B2"))
@@ -113,9 +142,9 @@ name of the synthetic declaration leaf it fabricates for every header
       (should-not (ilist-plus--folded-p (point))))))
 
 (ert-deftest ilist-plus-test-toggle-at-point ()
-  (let ((imenu-list--imenu-entries ilist-plus-test--tree-simple))
-    (ilist-plus-test--reset-ilist-buffer "A\n+ B\n  B1\n  B2\nC\n")
-    (with-current-buffer imenu-list-buffer-name
+  (progn
+    (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+    (with-current-buffer ilist-plus-test--ibuf
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-simple "B"))
       (ilist-plus-toggle-at-point)
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-simple "B1"))
@@ -126,12 +155,12 @@ name of the synthetic declaration leaf it fabricates for every header
       (should-not (ilist-plus--folded-p (point))))))
 
 (ert-deftest ilist-plus-test-fold-children ()
-  (let ((imenu-list--imenu-entries ilist-plus-test--tree-nested))
-    (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n")
-    (with-current-buffer imenu-list-buffer-name
-      (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Root")))
-    (ilist-plus-fold-children)
-    (with-current-buffer imenu-list-buffer-name
+  (progn
+    (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n" ilist-plus-test--tree-nested)
+    (with-current-buffer ilist-plus-test--ibuf
+      (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Root"))
+      (ilist-plus-fold-children))
+    (with-current-buffer ilist-plus-test--ibuf
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC1"))
       (should (ilist-plus--folded-p (point)))
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC2"))
@@ -144,17 +173,18 @@ name of the synthetic declaration leaf it fabricates for every header
 (ert-deftest ilist-plus-test-record-and-restore-folded-paths ()
   (let ((src (generate-new-buffer "ilist-plus-test-src")))
     (unwind-protect
-        (let ((imenu-list--imenu-entries ilist-plus-test--tree-nested)
-              (imenu-list--displayed-buffer src))
-          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n")
-          (with-current-buffer imenu-list-buffer-name
+        (progn
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Child1"))
             (ilist-plus-toggle-at-point))
-          (ilist-plus--record-folded-paths)
+          (ilist-plus--record-folded-paths (get-buffer ilist-plus-test--ibuf))
           (should (equal (buffer-local-value 'ilist-plus--folded-paths src)
                          '(("Root" "Child1"))))
-          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n")
-          (with-current-buffer imenu-list-buffer-name
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus--restore-folded-paths (buffer-local-value 'ilist-plus--folded-paths src))
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC1"))
             (should (ilist-plus--folded-p (point)))
@@ -162,18 +192,36 @@ name of the synthetic declaration leaf it fabricates for every header
             (should-not (ilist-plus--folded-p (point)))))
       (kill-buffer src))))
 
+(ert-deftest ilist-plus-test-restore-folded-paths-does-not-pile-up-overlays ()
+  (let ((src (generate-new-buffer "ilist-plus-test-src-overlays")))
+    (unwind-protect
+        (progn
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (with-current-buffer ilist-plus-test--ibuf
+            (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Child1"))
+            (ilist-plus-toggle-at-point))
+          (let ((paths (buffer-local-value 'ilist-plus--folded-paths src)))
+            (with-current-buffer ilist-plus-test--ibuf
+              (dotimes (_ 5)
+                (ilist-plus--restore-folded-paths paths))
+              (should (= 1 (length (seq-filter
+                                    (lambda (ov) (overlay-get ov 'ilist-plus-fold))
+                                    (overlays-in (point-min) (point-max)))))))))
+      (kill-buffer src))))
+
 (ert-deftest ilist-plus-test-fold-below-depth-once-dispatches-on-folded-flag ()
   (let ((src (generate-new-buffer "ilist-plus-test-src2")))
     (unwind-protect
-        (let ((imenu-list--imenu-entries ilist-plus-test--tree-nested)
-              (imenu-list--displayed-buffer src))
+        (progn
           (with-current-buffer src
             (setq-local ilist-plus--folded-once nil)
             (setq-local ilist-plus--folded-paths nil))
-          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n")
-          (ilist-plus-fold-below-depth-once 2)
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (ilist-plus-fold-below-depth-once (get-buffer ilist-plus-test--ibuf) 2)
           (should (buffer-local-value 'ilist-plus--folded-once src))
-          (with-current-buffer imenu-list-buffer-name
+          (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC1"))
             (should (ilist-plus--folded-p (point))))
           ;; Simulate a differing, previously-saved snapshot: the once-flag
@@ -181,9 +229,10 @@ name of the synthetic declaration leaf it fabricates for every header
           ;; than recompute a fresh depth-based fold.
           (with-current-buffer src
             (setq-local ilist-plus--folded-paths '(("Root"))))
-          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n")
-          (ilist-plus-fold-below-depth-once 2)
-          (with-current-buffer imenu-list-buffer-name
+          (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
+                                               ilist-plus-test--tree-nested src)
+          (ilist-plus-fold-below-depth-once (get-buffer ilist-plus-test--ibuf) 2)
+          (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Child1"))
             (should (ilist-plus--folded-p (point)))
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC1"))
@@ -191,20 +240,100 @@ name of the synthetic declaration leaf it fabricates for every header
       (kill-buffer src))))
 
 (ert-deftest ilist-plus-test-update-fold-markers ()
-  (let ((imenu-list--imenu-entries ilist-plus-test--tree-simple))
-    (ilist-plus-test--reset-ilist-buffer "A\n+ B\n  B1\n  B2\nC\n")
-    (with-current-buffer imenu-list-buffer-name
+  (progn
+    (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+    (with-current-buffer ilist-plus-test--ibuf
       (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-simple "B"))
       (ilist-plus-toggle-at-point)
       (ilist-plus-test--goto-line 1)
       (should (equal (get-text-property (point) 'display) ilist-plus-collapsed-marker))
       (ilist-plus-toggle-at-point)
       (ilist-plus-test--goto-line 1)
-      (should (equal (get-text-property (point) 'display) ilist-plus-expanded-marker)))))
+      (should-not (get-text-property (point) 'display)))))
+
+;;; Tree styles
+
+(defun ilist-plus-test--render (style)
+  "Render `ilist-plus-test--tree-nested' in STYLE; return the test Ilist buffer."
+  (ilist-plus-test--reset-ilist-buffer "" ilist-plus-test--tree-nested
+                                       ilist-plus-test--tree-nested)
+  (with-current-buffer ilist-plus-test--ibuf
+    (let ((ilist-plus-tree-style style))
+      (ilist-plus--insert-entries)
+      (ilist-plus-update-fold-markers))
+    (current-buffer)))
+
+(defun ilist-plus-test--lines (ibuf)
+  (split-string (with-current-buffer ibuf (buffer-substring-no-properties (point-min) (point-max)))
+                "\n" t))
+
+(defun ilist-plus-test--fold-line (ibuf name)
+  "Toggle the fold of the container NAME in IBUF under the current style."
+  (with-current-buffer ibuf
+    (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested name))
+    (ilist-plus-toggle-at-point)))
+
+(ert-deftest ilist-plus-test-tree-style-classic-render ()
+  (should (equal (ilist-plus-test--lines (ilist-plus-test--render 'classic))
+                 '("▼ Root" "   ▼ Child1" "     GC1" "     GC2" "   Child2"))))
+
+(ert-deftest ilist-plus-test-tree-style-straight-render ()
+  (should (equal (ilist-plus-test--lines (ilist-plus-test--render 'straight))
+                 '("Root" "├─ Child1" "│  ├─ GC1" "│  └─ GC2" "└─ Child2"))))
+
+(ert-deftest ilist-plus-test-tree-style-curved-render ()
+  (should (equal (ilist-plus-test--lines (ilist-plus-test--render 'curved))
+                 '("Root" "├─ Child1" "│  ├─ GC1" "│  ╰─ GC2" "╰─ Child2"))))
+
+(ert-deftest ilist-plus-test-tree-style-expanded-has-no-overlay ()
+  (dolist (style '(classic straight curved))
+    (with-current-buffer (ilist-plus-test--render style)
+      (should-not (text-property-not-all (point-min) (point-max) 'display nil)))))
+
+(ert-deftest ilist-plus-test-tree-style-collapsed-marker ()
+  (dolist (style '(classic straight curved))
+    (let ((ibuf (ilist-plus-test--render style))
+          (ilist-plus-tree-style style))
+      (ilist-plus-test--fold-line ibuf "Child1")
+      (with-current-buffer ibuf
+        (ilist-plus-test--goto-line 1)
+        (let* ((pos (text-property-not-all (point) (line-end-position) 'display nil))
+               (display (and pos (get-text-property pos 'display))))
+          (should pos)
+          (should (string-prefix-p ilist-plus-collapsed-marker display))
+          (should (= (length display)
+                     (if (eq style 'classic) 1 3))))
+        (ilist-plus-toggle-at-point)
+        (ilist-plus-test--goto-line 1)
+        (should-not (text-property-not-all (point) (line-end-position) 'display nil))))))
+
+(ert-deftest ilist-plus-test-tree-style-setter-redraws-open-buffers ()
+  (let* ((frame (selected-frame))
+         (ibuf (ilist-plus--get-buffer frame))
+         (src (generate-new-buffer "ilist-plus-test-style-src"))
+         (orig ilist-plus-tree-style)
+         (text (lambda () (with-current-buffer ibuf
+                            (buffer-substring-no-properties (point-min) (point-max))))))
+    (unwind-protect
+        (progn
+          (with-current-buffer src
+            (insert "x")
+            (setq-local imenu-create-index-function
+                        (lambda () (copy-tree ilist-plus-test--tree-nested))))
+          (customize-set-variable 'ilist-plus-tree-style 'classic)
+          (ilist-plus-update t frame src)
+          (should (string-match-p "▼ Root" (funcall text)))
+          (customize-set-variable 'ilist-plus-tree-style 'straight)
+          (should (string-match-p "└─ GC2" (funcall text)))
+          (customize-set-variable 'ilist-plus-tree-style 'curved)
+          (should (string-match-p "╰─ GC2" (funcall text))))
+      (customize-set-variable 'ilist-plus-tree-style orig)
+      (kill-buffer src)
+      (kill-buffer ibuf))))
 
 (ert-deftest ilist-plus-test-rebind-buttons ()
   (ilist-plus-test--reset-ilist-buffer "hello\n")
-  (with-current-buffer imenu-list-buffer-name
+  (with-current-buffer ilist-plus-test--ibuf
     (let ((ov (make-button (point-min) (point-max))))
       (should (eq (overlay-get ov 'keymap) button-map))
       (ilist-plus--rebind-buttons)
@@ -212,17 +341,24 @@ name of the synthetic declaration leaf it fabricates for every header
       (ilist-plus--rebind-buttons)
       (should (eq (overlay-get ov 'keymap) ilist-plus-button-keymap)))))
 
-(ert-deftest ilist-plus-test-after-imenu-list-toggle-resets-locals ()
-  (let ((b1 (generate-new-buffer "ilist-plus-test-b1")))
+(ert-deftest ilist-plus-test-reset-fold-state ()
+  (let ((b1 (generate-new-buffer "ilist-plus-test-b1"))
+        (b2 (generate-new-buffer "ilist-plus-test-b2")))
     (unwind-protect
         (progn
-          (with-current-buffer b1
-            (setq-local ilist-plus--folded-once t)
-            (setq-local ilist-plus--folded-paths '(("x"))))
-          (ilist-plus-after-imenu-list-toggle)
+          (dolist (b (list b1 b2))
+            (with-current-buffer b
+              (setq-local ilist-plus--folded-once t)
+              (setq-local ilist-plus--folded-paths '(("x")))))
+          (ilist-plus-reset-fold-state (list b2))
           (should-not (buffer-local-value 'ilist-plus--folded-once b1))
-          (should-not (buffer-local-value 'ilist-plus--folded-paths b1)))
-      (kill-buffer b1))))
+          (should-not (buffer-local-value 'ilist-plus--folded-paths b1))
+          (should (buffer-local-value 'ilist-plus--folded-once b2))
+          (should (buffer-local-value 'ilist-plus--folded-paths b2))
+          (ilist-plus-reset-fold-state)
+          (should-not (buffer-local-value 'ilist-plus--folded-once b2)))
+      (kill-buffer b1)
+      (kill-buffer b2))))
 
 ;;; Sorting
 
@@ -359,6 +495,7 @@ name of the synthetic declaration leaf it fabricates for every header
 (ert-deftest ilist-plus-test-elisp-index-by-position ()
   (with-temp-buffer
     (emacs-lisp-mode)
+    (ilist-plus--elisp-mode-setup)
     (insert ";;; Header stuff\n\n;;; Code:\n\n(defvar ilist-plus-test-var nil \"doc\")\n\n;;; Section A\n\n;;;; Sub A1\n(defun test-fn-a1 () nil)\n\n;;;; Sub A2\n(defun test-fn-a2 () nil)\n\n;;; Section B\n(use-package foo-pkg)\n(defun test-fn-b1 () nil)\n(defcustom my-custom-thing 1 \"doc\")\n")
     ;; `ilist-plus-elisp-nest-under-code' folds every section following
     ;; ";;; Code:" underneath it, so Section A/B end up nested inside
@@ -378,6 +515,7 @@ name of the synthetic declaration leaf it fabricates for every header
 (ert-deftest ilist-plus-test-elisp-index-by-type ()
   (with-temp-buffer
     (emacs-lisp-mode)
+    (ilist-plus--elisp-mode-setup)
     (setq-local ilist-plus-sort-strategy 'by-type)
     (insert ";;; Header stuff\n\n;;; Code:\n\n(defvar ilist-plus-test-var nil \"doc\")\n\n;;; Section A\n\n;;;; Sub A1\n(defun test-fn-a1 () nil)\n\n;;;; Sub A2\n(defun test-fn-a2 () nil)\n\n;;; Section B\n(use-package foo-pkg)\n(defun test-fn-b1 () nil)\n(defcustom my-custom-thing 1 \"doc\")\n")
     (should (equal (ilist-plus-test--strip-positions (ilist-plus-elisp-index))
@@ -413,11 +551,11 @@ name of the synthetic declaration leaf it fabricates for every header
 ;;; Current-entry tracking (including org container headings)
 
 (ert-deftest ilist-plus-test-entry-position-and-current-entry ()
-  (let ((imenu-list--line-entries (list (cons "e1" 10) (cons "e2" 20) (cons "e3" 30))))
+  (let ((line-entries (list (cons "e1" 10) (cons "e2" 20) (cons "e3" 30))))
     (with-temp-buffer
       (insert (make-string 50 ?x))
       (goto-char 25)
-      (should (equal (ilist-plus--current-entry) (cons "e2" 20)))))
+      (should (equal (ilist-plus--current-entry line-entries) (cons "e2" 20)))))
   (let* ((marker (with-temp-buffer (insert "* Heading\n") (point-min-marker)))
          (name (propertize "Heading" 'org-imenu-marker marker))
          (container-entry (cons name (list (cons "child" 5)))))
@@ -443,20 +581,19 @@ name of the synthetic declaration leaf it fabricates for every header
         (progn
           (with-current-buffer src
             (emacs-lisp-mode)
+            (ilist-plus--elisp-mode-setup)
             (insert ";;; Header\n\n;;; Code:\n\n;;; Section A\n\n;;;; Sub A1\n(defun test-fn-a1 () nil)\n\n;;;; Sub A2\n(defun test-fn-a2 () nil)\n"))
           (let* ((entries (with-current-buffer src (ilist-plus-elisp-index-by-position)))
-                 (flat (ilist-plus--flatten-entries entries 0)))
+                 (flat (ilist-plus--build-nodes entries)))
             (with-current-buffer src
               (goto-char (point-min))
               (search-forward "test-fn-a1")
               (overlay-put (make-overlay (point) (+ (point) 5)) 'diff-hl-hunk t))
             (ilist-plus-test--reset-ilist-buffer
-             (concat (mapconcat (lambda (_) "x") flat "\n") "\n"))
-            (let ((imenu-list--imenu-entries entries)
-                  (imenu-list--displayed-buffer src))
-              (ilist-plus-highlight-modified-entries))
+             (concat (mapconcat (lambda (_) "x") flat "\n") "\n") entries src)
+            (ilist-plus-highlight-modified-entries (get-buffer ilist-plus-test--ibuf))
             (cl-labels ((marked-p (name)
-                          (with-current-buffer imenu-list-buffer-name
+                          (with-current-buffer ilist-plus-test--ibuf
                             (save-excursion
                               (ilist-plus-test--goto-line (ilist-plus-test--line-of entries name))
                               (cl-some (lambda (ov) (overlay-get ov 'ilist-plus-modified))
@@ -472,25 +609,337 @@ name of the synthetic declaration leaf it fabricates for every header
 
 ;;; Org mode optimization
 
-(ert-deftest ilist-plus-test-skip-org-rescan-if-unmodified ()
-  (let (imenu-list--imenu-entries imenu-list--displayed-buffer)
+(ert-deftest ilist-plus-test-collect-entries-skips-unmodified-org-rescan ()
+  (let ((ibuf (ilist-plus-test--reset-ilist-buffer "")))
     (with-temp-buffer
       (org-mode)
       (insert "* Heading\n")
-      (let ((orig-called 0))
-        (cl-flet ((orig ()
-                    (setq orig-called (1+ orig-called))
-                    (setq imenu--index-alist '(("stub" . 1)))))
-          (ilist-plus--skip-org-rescan-if-unmodified #'orig)
-          (should (= orig-called 1))
+      (let ((rescans 0))
+        (cl-letf (((symbol-function 'ilist-plus--rescan-imenu)
+                   (lambda ()
+                     (setq rescans (1+ rescans))
+                     (setq imenu--index-alist '(("stub" . 1))))))
+          (ilist-plus--collect-entries ibuf)
+          (should (= rescans 1))
           (should (equal ilist-plus--last-tick (buffer-chars-modified-tick)))
-          (ilist-plus--skip-org-rescan-if-unmodified #'orig)
-          (should (= orig-called 1))
-          (should (eq imenu-list--imenu-entries imenu--index-alist))
-          (should (eq imenu-list--displayed-buffer (current-buffer)))
+          (ilist-plus--collect-entries ibuf)
+          (should (= rescans 1))
+          (should (eq (buffer-local-value 'ilist-plus--entries ibuf) imenu--index-alist))
+          (should (eq (buffer-local-value 'ilist-plus--source ibuf) (current-buffer)))
           (insert "more text")
-          (ilist-plus--skip-org-rescan-if-unmodified #'orig)
-          (should (= orig-called 2)))))))
+          (ilist-plus--collect-entries ibuf)
+          (should (= rescans 2)))))))
+
+;;; Per-frame buffers
+
+(ert-deftest ilist-plus-test-buffer-names-follow-frame-id ()
+  (let ((frame (selected-frame)))
+    (should (equal (ilist-plus--buffer-name frame t)
+                   (format "*IListPlus[%d]*" (ilist-plus--frame-id frame))))
+    (should (= (ilist-plus--frame-id frame t) (ilist-plus--frame-id frame t)))))
+
+(ert-deftest ilist-plus-test-lookups-do-not-allocate-frame-id ()
+  (let ((frame (selected-frame))
+        (old (frame-parameter (selected-frame) 'ilist-plus-id)))
+    (unwind-protect
+        (progn
+          (set-frame-parameter frame 'ilist-plus-id nil)
+          (should-not (ilist-plus--buffer-name frame))
+          (should-not (ilist-plus--buffer frame))
+          (ilist-plus--frame-deleted frame)
+          (should-not (frame-parameter frame 'ilist-plus-id))
+          (ilist-plus--get-buffer frame)
+          (should (frame-parameter frame 'ilist-plus-id)))
+      (when-let* ((buf (ilist-plus--buffer frame))) (kill-buffer buf))
+      (set-frame-parameter frame 'ilist-plus-id old))))
+
+(ert-deftest ilist-plus-test-get-buffer-is-per-frame-and-killed-with-it ()
+  (let* ((frame (selected-frame))
+         (ibuf (ilist-plus--get-buffer frame)))
+    (unwind-protect
+        (progn
+          (should (eq ibuf (ilist-plus--buffer frame)))
+          (should (ilist-plus--ilist-buffer-p ibuf))
+          (should (eq (buffer-local-value 'ilist-plus--frame ibuf) frame))
+          (should (memq ibuf (ilist-plus--buffers)))
+          (ilist-plus--frame-deleted frame)
+          (should-not (buffer-live-p ibuf)))
+      (when (buffer-live-p ibuf) (kill-buffer ibuf)))))
+
+(ert-deftest ilist-plus-test-update-fills-only-its-own-buffer ()
+  (let* ((frame (selected-frame))
+         (ibuf (ilist-plus--get-buffer frame))
+         (other (ilist-plus-test--reset-ilist-buffer "untouched\n" '(("keep" . 1)))))
+    (unwind-protect
+        (let ((src (generate-new-buffer "ilist-plus-test-update-src")))
+          (with-current-buffer src
+            (emacs-lisp-mode)
+            (insert "(defun first-fn () nil)\n(defun second-fn () nil)\n"))
+          (ilist-plus-update t frame src)
+          (should (eq (buffer-local-value 'ilist-plus--source ibuf) src))
+          (should (cl-find "first-fn" (buffer-local-value 'ilist-plus--line-entries ibuf)
+                           :key #'car :test #'equal))
+          (should (string-match-p "second-fn" (with-current-buffer ibuf (buffer-string))))
+          (should (equal (buffer-local-value 'ilist-plus--entries other) '(("keep" . 1))))
+          (should (equal (with-current-buffer other (buffer-string)) "untouched\n"))
+          (kill-buffer src))
+      (kill-buffer ibuf))))
+
+;;; imenu-list compatibility
+
+(defvar imenu-list-size)
+(defvar imenu-list-custom-position-translator)
+
+(ert-deftest ilist-plus-test-opt-honors-imenu-list-only-under-compat ()
+  (let ((ilist-plus-size 0.3)
+        (imenu-list-size 0.5))
+    (let ((ilist-plus-imenu-list-compat nil))
+      (should (= (ilist-plus--opt 'size) 0.3)))
+    (let ((ilist-plus-imenu-list-compat t))
+      (should (= (ilist-plus--opt 'size) 0.5))))
+  ;; compat never fails when the imenu-list variable doesn't exist
+  (unless (boundp 'imenu-list-custom-position-translator)
+    (let ((ilist-plus-imenu-list-compat t)
+          (ilist-plus-custom-position-translator 'identity))
+      (should (eq (ilist-plus--opt 'custom-position-translator) 'identity)))))
+
+(ert-deftest ilist-plus-test-compat-flag-defaults-off-and-never-loads-imenu-list ()
+  (should-not (default-value 'ilist-plus-imenu-list-compat))
+  (should-not (featurep 'imenu-list)))
+
+(defmacro ilist-plus-test--with-counted-rescans (ibuf &rest body)
+  "Run BODY in a temp buffer, binding `rescans' to a count of index rescans."
+  (declare (indent 1))
+  `(let ((,ibuf (ilist-plus-test--reset-ilist-buffer "")))
+     (with-temp-buffer
+       (insert "some text\n")
+       (let ((rescans 0))
+         (cl-letf (((symbol-function 'ilist-plus--rescan-imenu)
+                    (lambda ()
+                      (setq rescans (1+ rescans))
+                      (setq imenu--index-alist (list (cons "stub" rescans))))))
+           ,@body)))))
+
+(ert-deftest ilist-plus-test-collect-entries-skips-unmodified-rescan-in-any-mode ()
+  (ilist-plus-test--with-counted-rescans ibuf
+    (ilist-plus--collect-entries ibuf)
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 1))
+    (insert "more")
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 2))))
+
+(ert-deftest ilist-plus-test-collect-entries-force-and-setup-changes-rescan ()
+  (ilist-plus-test--with-counted-rescans ibuf
+    (ilist-plus--collect-entries ibuf)
+    (ilist-plus--collect-entries ibuf t)
+    (should (= rescans 2))
+    (setq-local ilist-plus-sort-strategy 'alphabetical)
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 3))
+    (ilist-plus--collect-entries ibuf)
+    (should (= rescans 3))))
+
+(ert-deftest ilist-plus-test-collect-entries-keeps-entries-list-when-unchanged ()
+  (let ((ibuf (ilist-plus-test--reset-ilist-buffer "")))
+    (with-temp-buffer
+      (insert "some text\n")
+      (let ((n 0))
+        (cl-letf (((symbol-function 'ilist-plus--rescan-imenu)
+                   (lambda () (setq imenu--index-alist (list (cons "same" (cl-incf n)))))))
+          (ilist-plus--collect-entries ibuf)
+          (let ((first (buffer-local-value 'ilist-plus--entries ibuf)))
+            (setq n 0)
+            (ilist-plus--collect-entries ibuf t)
+            (should (eq first (buffer-local-value 'ilist-plus--entries ibuf)))))))))
+
+;;; Cached nodes and line positions
+
+(ert-deftest ilist-plus-test-nodes-built-once-per-entries-list ()
+  (let ((builds 0)
+        (orig (symbol-function 'ilist-plus--build-nodes)))
+    (cl-letf (((symbol-function 'ilist-plus--build-nodes)
+               (lambda (entries) (cl-incf builds) (funcall orig entries))))
+      (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+      (with-current-buffer ilist-plus-test--ibuf
+        (ilist-plus--nodes)
+        (ilist-plus-fold-below-depth 1)
+        (ilist-plus--restore-folded-paths nil)
+        (ilist-plus-toggle-at-point)
+        (should (= builds 1))
+        (setq ilist-plus--entries (copy-tree ilist-plus-test--tree-simple))
+        (ilist-plus--nodes)
+        (should (= builds 2))))))
+
+(ert-deftest ilist-plus-test-toggle-at-point-past-last-entry-is-a-no-op ()
+  (ilist-plus-test--reset-ilist-buffer "A\n▼ B\n  B1\n  B2\nC\n" ilist-plus-test--tree-simple)
+  (with-current-buffer ilist-plus-test--ibuf
+    (goto-char (point-max))
+    (ilist-plus-toggle-at-point)
+    (should-not (ilist-plus--any-folded-p))
+    (should-error (ilist-plus-fold-children) :type 'user-error)))
+
+(ert-deftest ilist-plus-test-line-span-uses-current-line-positions ()
+  (ilist-plus-test--reset-ilist-buffer "A\nB\nC\nD\n" nil)
+  (with-current-buffer ilist-plus-test--ibuf
+    (should (equal (ilist-plus--line-span 4 0 2) '(3 . 5)))
+    (should (equal (ilist-plus--line-span 4 1 4) (cons 5 (point-max))))
+    (should (equal (ilist-plus--line-span 4 3 4) (cons (point-max) (point-max))))
+    (let ((inhibit-read-only t))
+      (goto-char (point-max))
+      (insert "E\n"))
+    (should (equal (ilist-plus--line-span 5 3 5) (cons 9 (point-max))))))
+
+(ert-deftest ilist-plus-test-position-translator-made-once-per-lookup-pass ()
+  (let ((made 0))
+    (cl-letf (((symbol-function 'ilist-plus--position-translator)
+               (lambda () (cl-incf made) #'identity)))
+      (with-temp-buffer
+        (insert (make-string 50 ?x))
+        (ilist-plus--current-entry
+         (mapcar (lambda (i) (cons (format "e%d" i) i)) (number-sequence 1 20)))
+        (should (= made 1))))))
+
+;;; Multiple frames
+
+(defun ilist-plus-test--make-frame ()
+  "A new, usably sized frame, or nil when this Emacs cannot create one."
+  (condition-case nil
+      (let ((frame (make-frame)))
+        (when (< (frame-width frame) 60)
+          (set-frame-size frame 80 24))
+        (if (and (>= (frame-width frame) 60) (>= (frame-height frame) 10))
+            frame
+          (delete-frame frame)
+          nil))
+    (error nil)))
+
+(defun ilist-plus-test--ibuf-text (frame)
+  (with-current-buffer (ilist-plus--buffer frame) (buffer-string)))
+
+(ert-deftest ilist-plus-test-drop-duplicate-frame-id ()
+  (let ((params (list (cons 'orig 1) (cons 'clone 1) (cons 'other 2))))
+    (cl-letf (((symbol-function 'frame-list) (lambda () '(orig clone other)))
+              ((symbol-function 'frame-parameter)
+               (lambda (f _p) (alist-get f params)))
+              ((symbol-function 'set-frame-parameter)
+               (lambda (f _p v) (setf (alist-get f params) v))))
+      (ilist-plus--drop-duplicate-frame-id 'other)
+      (should (= 2 (alist-get 'other params)))
+      (ilist-plus--drop-duplicate-frame-id 'clone)
+      (should-not (alist-get 'clone params))
+      (should (= 1 (alist-get 'orig params))))))
+
+(ert-deftest ilist-plus-test-mode-installs-clone-frame-guard ()
+  (let ((ilist-plus-mode nil))
+    (unwind-protect
+        (progn
+          (ilist-plus-mode 1)
+          (should (memq #'ilist-plus--drop-duplicate-frame-id after-make-frame-functions))
+          (ilist-plus-mode -1)
+          (should-not (memq #'ilist-plus--drop-duplicate-frame-id after-make-frame-functions)))
+      (ilist-plus-mode -1))))
+
+(ert-deftest ilist-plus-test-toggle-without-mode-messages-and-noops ()
+  (let ((ilist-plus-mode nil)
+        (ilist-plus-focus-after-activation nil)
+        (before (ilist-plus--buffers))
+        msg)
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args) (setq msg (apply #'format fmt args)))))
+      (ilist-plus-toggle))
+    (should (string-match-p "ilist-plus-mode" msg))
+    (should (equal before (ilist-plus--buffers)))))
+
+(ert-deftest ilist-plus-test-mode-disable-removes-advice-after-compat-change ()
+  (let ((ilist-plus-mode nil)
+        (ilist-plus-imenu-list-compat t))
+    (unwind-protect
+        (progn
+          (ilist-plus-mode 1)
+          (setq ilist-plus-imenu-list-compat nil)
+          (ilist-plus-mode -1)
+          (should-not (advice-member-p #'ilist-plus-toggle 'imenu-list-smart-toggle)))
+      (ilist-plus-mode -1))))
+
+(ert-deftest ilist-plus-test-mode-line-sort-nil-without-live-source ()
+  (with-temp-buffer
+    (setq ilist-plus--source nil)
+    (should-not (ilist-plus-mode-line-sort))))
+
+(ert-deftest ilist-plus-test-two-frames-toggle-and-view-independently ()
+  (let ((ilist-plus-focus-after-activation nil)
+        (f1 (selected-frame))
+        (f2 (ilist-plus-test--make-frame))
+        (a (generate-new-buffer "ilist-plus-test-frame-a"))
+        (b (generate-new-buffer "ilist-plus-test-frame-b")))
+    (skip-unless f2)
+    (unwind-protect
+        (progn
+          (ilist-plus-mode 1)
+          (with-current-buffer a
+            (emacs-lisp-mode)
+            (insert "(defun frame-a-one () 1)\n(defun frame-a-two () 2)\n"))
+          (with-current-buffer b
+            (emacs-lisp-mode)
+            (insert "(defun frame-b-one () 1)\n(defun frame-b-two () 2)\n(defun frame-b-three () 3)\n"))
+          (select-frame f1)
+          (switch-to-buffer a)
+          (ilist-plus-toggle)
+          (select-frame f2)
+          (switch-to-buffer b)
+          (ilist-plus-toggle)
+          (let ((i1 (ilist-plus--buffer f1))
+                (i2 (ilist-plus--buffer f2)))
+            ;; separate buffers, each shown only in its own frame
+            (should (and i1 i2 (not (eq i1 i2))))
+            (should-not (equal (buffer-name i1) (buffer-name i2)))
+            (should (get-buffer-window i1 f1))
+            (should-not (get-buffer-window i1 f2))
+            (should (get-buffer-window i2 f2))
+            (should-not (get-buffer-window i2 f1))
+            ;; opening leaves the source window selected
+            (should (eq (window-buffer (frame-selected-window f2)) b))
+            (should (eq (window-buffer (frame-selected-window f1)) a))
+            ;; separate views of different sources
+            (should (eq (buffer-local-value 'ilist-plus--source i1) a))
+            (should (eq (buffer-local-value 'ilist-plus--source i2) b))
+            (should (string-match-p "frame-a-two" (ilist-plus-test--ibuf-text f1)))
+            (should-not (string-match-p "frame-b" (ilist-plus-test--ibuf-text f1)))
+            (should (string-match-p "frame-b-three" (ilist-plus-test--ibuf-text f2)))
+            (should-not (string-match-p "frame-a" (ilist-plus-test--ibuf-text f2)))
+            ;; updating one frame's view leaves the other's untouched
+            (let ((before (ilist-plus-test--ibuf-text f1)))
+              (with-current-buffer b (goto-char (point-max)))
+              (set-window-point (get-buffer-window b f2) (with-current-buffer b (point)))
+              (ilist-plus-update nil f2)
+              (should (equal (ilist-plus-test--ibuf-text f1) before))
+              (should (eq (buffer-local-value 'ilist-plus--source i1) a)))
+            ;; toggling is per frame
+            (select-frame f2)
+            (ilist-plus-toggle)
+            (should-not (get-buffer-window i2 f2))
+            (should (get-buffer-window i1 f1))
+            (ilist-plus-toggle)
+            (should (get-buffer-window i2 f2))
+            (select-frame f1)
+            (ilist-plus-toggle)
+            (should-not (get-buffer-window i1 f1))
+            (should (get-buffer-window i2 f2))
+            ;; a frame's buffer goes away with the frame
+            (delete-frame f2)
+            (should-not (buffer-live-p i2))
+            (should (buffer-live-p i1))))
+      (when (frame-live-p f2) (delete-frame f2))
+      (select-frame f1)
+      (dolist (ibuf (ilist-plus--buffers))
+        (when (get-buffer-window ibuf t)
+          (quit-windows-on ibuf nil t))
+        (kill-buffer ibuf))
+      (ilist-plus--stop-timer)
+      (ilist-plus-mode -1)
+      (kill-buffer a)
+      (kill-buffer b))))
 
 (provide 'ilist-plus-test)
 ;;; ilist-plus-test.el ends here

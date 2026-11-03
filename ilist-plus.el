@@ -20,9 +20,9 @@
 
 ;; Maintainer: Benjamin Leis <benleis1@gmail.com>
 
-;; Version: 0.0.2
+;; Version: 0.0.3
 
-;; Package-Requires: ((emacs "29") (imenu-list "20210420.1200") (diff-hl "20260830.1400"))
+;; Package-Requires: ((emacs "29") (diff-hl "20260830.1400"))
 
 ;; Keywords: convenience outlines tools
 
@@ -30,13 +30,13 @@
 
 ;; **BETA release**
 
-;; This package transforms Emac's imenu-list into a richer outline sidebar. It adds hierarchical
-;; folding, sorting, Git modification indicators, improved styling and better indexing for elisp,
-;; org and treesitter java. If you use imenu-list to navigate large files, ilist-plus make the
-;; outline substantially more informative and interactive.  Stock imenu-list gives you a flat,
-;; ordered by position index; these extensions turn it into a more dynamic outline by leveraging
-;; hierarchy and folding strategies, so the side window tracks where you are and how deep you are
-;; without extra effort.
+;; This package inspired by Emac's imenu-list provides a richer outline sidebar.
+;; It adds hierarchical folding, sorting, Git modification indicators, improved styling and better
+;; indexing for elisp, org and treesitter java. If you use imenu-list to navigate large files,
+;; ilist-plus make the outline substantially more informative and interactive. Stock imenu-list
+;; gives you a flat, ordered by position index; these extensions turn it into a more dynamic outline
+;; by leveraging hierarchy and folding strategies, so the side window tracks where you are and how
+;; deep you are without extra effort.
 
 ;; ## Samples
 ;; ![Before - with just imenu-ilist](./before.png)
@@ -65,12 +65,15 @@
 ;; * perf optimization for org mode.
 
 ;; ## Requirements
-;; 1. imenu-list package installed and loaded before imenu.el ((use-package imenu-list :ensure t))
-;; 2. Recommended: modus-themes loaded with a theme active — modus-themes-get-color-value is called
+;; 1. Recommended: modus-themes loaded with a theme active — modus-themes-get-color-value is called
 ;;    at defface time for ilist-plus-hl-face and ilist-plus-modified-face.
-;; 3. Recommended: a fg-hl-imenu entry in modus-themes-common-palette-overrides — without it the
+;; 2. Recommended: a fg-hl-imenu entry in modus-themes-common-palette-overrides — without it the
 ;;      highlight face has no foreground color.
-;; 4. diff-hl package + global-diff-hl-mode enabled, for the VC-modified highlighting to work
+;; 3. diff-hl package + global-diff-hl-mode enabled, for the VC-modified highlighting to work
+
+;; ## Backwards Compatibility
+;; * The lastest implementation no longer extends imenu-list and instead fully replaces it.
+;; * To keep an existing imenu-list configuration, see `ilist-plus-imenu-list-compat`.
 ;;
 ;; ## Installing
 ;; 1. Install this package using `use-package`
@@ -79,7 +82,7 @@
 ;;    :vc (:url "https://github.com/benleis1/ilist-plus"))
 ;; ```
 ;; 2. Turn on `ilist-plus-mode` (a global minor mode) to install its
-;;    mode-line format, hooks, and advice on `imenu-list`.
+;;    mode-line format and hooks,
 ;; ```
 ;; (ilist-plus-mode 1)
 ;; ```
@@ -92,29 +95,36 @@
 ;;             	      (setq-local ilist-plus-autofold-depth 2)
 ;;                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ;; ```
-;; 4. Turn on the side window by calling `imenu-list-smart-toggle`
+;; 4. Enable `ilist-plus-mode`, then turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
+;;    `*IListPlus[N]*`, that tracks, folds and toggles independently of the other frames.
 ;;
 ;; ## Customization
 ;; * The tree style is set via the custom variable `ilist-plus-tree-style`.
+;; * Window and update behavior: `ilist-plus-position`, `ilist-plus-size`,
+;;   `ilist-plus-focus-after-activation`, `ilist-plus-auto-resize`, `ilist-plus-update-current-entry`,
+;;   `ilist-plus-auto-update`, `ilist-plus-idle-update-delay`, `ilist-plus-after-jump-hook` and
+;;   `ilist-plus-update-hook`.
+;; * Set `ilist-plus-imenu-list-compat` to non-nil to have ilist-plus read the matching `imenu-list-*`
+;;   options (and hooks, and the `imenu-list` entry faces) when they are defined. Off by default.
 ;; * Set fg-hl-imenu to some color in a modus palette override to set the foreground color for the current
 ;; entry
 ;;
 
 ;; ## Key bindings
-;; Bindings active in the `*Ilist*` buffer (`imenu-list-major-mode-map`). Rows marked `*` are
-;; added or rebound by ilist-plus over imenu-list's stock binding.
+;; Bindings active in the `*IListPlus[N]*` buffers (`ilist-plus-major-mode-map`). Rows marked `*` are
+;; bindings that stock imenu-list does not have.
 ;;
 ;; | Key              | Command                      | Description                                          |
 ;; |------------------|-------------------------------|-------------------------------------------------------|
-;; | `RET` / `mouse-2`| `imenu-list-ret-dwim`        | Jump to the entry at point                            |
-;; | `SPC`            | `imenu-list-display-dwim`    | Display the entry without leaving the Ilist buffer    |
+;; | `RET` / `mouse-2`| `ilist-plus-ret-dwim`        | Jump to the entry at point                            |
+;; | `SPC`            | `ilist-plus-display-dwim`    | Display the entry without leaving the Ilist buffer    |
 ;; | `TAB` *          | `ilist-plus-toggle-at-point` | Toggle fold/unfold of the entry at point               |
 ;; | `f` *            | `ilist-plus-toggle-fold-all` | Toggle the whole tree between fully unfolded and the autofold depth |
 ;; | `s` *            | `ilist-plus-switch-sort`     | Switch sort strategy (alphabetical / position / by-type) |
 ;; | `n`              | `next-line`                   | Move to the next entry                                 |
 ;; | `p`              | `previous-line`               | Move to the previous entry                             |
-;; | `g`              | `imenu-list-refresh`         | Refresh the index                                      |
-;; | `q`              | `imenu-list-quit-window`     | Close the Ilist window                                 |
+;; | `g`              | `ilist-plus-refresh`         | Refresh the index                                      |
+;; | `q`              | `ilist-plus-quit-window`     | Close this frame's Ilist window                        |
 ;; | `mouse-1` *      | `quit-window`                 | Click the Ilist mode-line to close the window          |
 
 ;; ## Demo video
@@ -122,11 +132,11 @@
 
 ;;; Code:
 
-;; Top-level `define-key' calls below need `imenu-list-major-mode-map' bound,
-;; so `imenu-list' must actually be loaded here rather than just declared for
-;; the byte-compiler -- relying on load order from the caller (e.g. a deferred
-;; `use-package' form under elpaca) isn't guaranteed.
-(require 'imenu-list)
+;; ilist-plus renders and tracks its own outline buffers (one `*IListPlus[N]*' per frame). See
+;; `ilist-plus-imenu-list-compat' to reuse an existing imenu-list configuration.
+(require 'imenu)
+(require 'cl-lib)
+(require 'hl-line)
 
 ;; pre-declarations
 
@@ -135,45 +145,271 @@
 (declare-function treesit-buffer-root-node treesit.el)
 (declare-function imenu--subalist-p imenu.el)
 (declare-function imenu--generic-function imenu.el)
-(declare-function imenu-list-refresh imenu-list.el)
-(declare-function imenu-list-<= imenu-list.el)
-(declare-function imenu-list-position-translator imenu-list.el)
-(declare-function hl-line-highlight hl-line.el)
+(declare-function eglot--lsp-position-to-point "eglot")
+(declare-function eglot-managed-p "eglot")
+(declare-function window--display-buffer window.el)
 
 (defvar imenu--index-alist)
-(defvar imenu-list-buffer-name)
-(defvar imenu-list--displayed-buffer)
-(defvar imenu-list--imenu-entries)
-(defvar imenu-list--displayed-buffer)
+(defvar ilist-plus-mode)
 (defvar imenu-list-mode-line-format)
-
-;; Work around an upstream imenu-list bug: `imenu-list-major-mode's docstring
-;; references `\{imenu-list-mode-map}' for its `describe-mode' (bound to "h")
-;; substitution, but no such variable exists -- only `imenu-list-major-mode-map'
-;; does -- so pressing "h" errors instead of showing the bindings. Declared
-;; here, before `imenu-list-major-mode-map' below, so the byte-compiler
-;; doesn't warn about alias/referent ordering.
-(defvaralias 'imenu-list-mode-map 'imenu-list-major-mode-map)
-
-(defvar imenu-list-major-mode-map)
-(defvar imenu-list--line-entries)
+(defvar ilist-plus-sort-strategy)
 
 ;;; General UI changes
 (defgroup ilist-plus nil
-  "Extended imenu-list support."
+  "Sidebar that represents the imenu entries."
   :group 'convenience)
 
-;; Remove underlining from all the top level faces.
-(set-face-attribute 'imenu-list-entry-subalist-face-0 nil :underline nil)
-(set-face-attribute 'imenu-list-entry-subalist-face-1 nil :underline nil)
-(set-face-attribute 'imenu-list-entry-subalist-face-2 nil :underline nil)
-(set-face-attribute 'imenu-list-entry-subalist-face-3 nil :underline nil)
+;;; Options
+
+;; Because this package originally extended imenu-list and now has decoupled provide a compat layer
+;; for migration.
+(defcustom ilist-plus-imenu-list-compat nil
+  "Whether ilist-plus honors an existing `imenu-list' configuration.
+When non-nil, each of the `imenu-list' options that has an ilist-plus
+counterpart below (position, size, focus-after-activation, auto-resize,
+update-current-entry, `idle-update-delay', auto-update,
+persist-when-imenu-index-unavailable, `mode-line-format',
+custom-position-translator and the `imenu-list-after-jump-hook' and
+`imenu-list-update-hook' hooks) is read from its `imenu-list-*'
+variable whenever that variable is bound, in preference to the
+`ilist-plus-*' one.  `imenu-list' itself is never loaded by ilist-plus."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-position 'right
+  "Side of the frame the Ilist window is on: `right', `left', `above' or `below'."
+  :type '(choice (const above) (const below) (const left) (const right))
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-size 0.3
+  "Size of the Ilist window: a fraction of the frame, or a number of rows/columns."
+  :type 'number
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-focus-after-activation t
+  "Non-nil to select the Ilist window when it is opened."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-auto-resize nil
+  "Non-nil to resize the Ilist window to fit its content after each update."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-update-current-entry t
+  "Non-nil to keep the Ilist point on the entry the source window is in."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-auto-update t
+  "Non-nil to update visible Ilist windows whenever Emacs is idle."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-idle-update-delay 0.5
+  "Idle time in seconds before the Ilist windows are updated."
+  :type 'number
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-persist-when-imenu-index-unavailable t
+  "Non-nil to keep the old entries when the new source buffer has no imenu index."
+  :type 'boolean
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-custom-position-translator nil
+  "Function returning a function that maps an imenu position to a buffer position.
+Nil means imenu positions are used as they are."
+  :type '(choice (const nil) function)
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-after-jump-hook '(recenter)
+  "Hook run after jumping to an entry from an Ilist buffer."
+  :type 'hook
+  :group 'ilist-plus)
+
+(defcustom ilist-plus-update-hook nil
+  "Hook run, with the source buffer current, after an Ilist buffer is updated."
+  :type 'hook
+  :group 'ilist-plus)
+
+(defvar ilist-plus-mode-line-format nil
+  "Mode-line format of the Ilist buffers. nil means build the default one.")
+
+(defun ilist-plus--opt (name)
+  "The value of option NAME (a symbol such as `size').
+Reads `imenu-list-NAME' when `ilist-plus-imenu-list-compat' is set and
+that variable is bound, otherwise `ilist-plus-NAME'."
+  (let ((compat (intern (format "imenu-list-%s" name))))
+    (if (and ilist-plus-imenu-list-compat (boundp compat))
+        (symbol-value compat)
+      (symbol-value (intern (format "ilist-plus-%s" name))))))
+
+(defun ilist-plus--run-hooks (name)
+  "Run hook NAME's `ilist-plus-' variant, then its `imenu-list-' one under compat."
+  (run-hooks (intern (format "ilist-plus-%s" name)))
+  (let ((compat (intern (format "imenu-list-%s" name))))
+    (when (and ilist-plus-imenu-list-compat (boundp compat))
+      (run-hooks compat))))
+
+;;; Per-frame buffers
+
+;; Every frame gets its own outline buffer, named `*IListPlus[N]*' where N is a small
+;; per-frame id, so each frame tracks and folds independently.  All of a buffer's
+;; state lives in buffer-local variables of that IlistPlus buffer.
+
+(defvar-local ilist-plus--frame nil
+  "The frame this `*IListPlus[N]*' buffer belongs to.")
+
+(defvar-local ilist-plus--entries nil
+  "The raw imenu index of `ilist-plus--source' as shown in this Ilist buffer.")
+
+;; This stores the processed nodes I build out of the raw imenu index entries.
+(defvar-local ilist-plus--line-entries nil
+  "Entries of `ilist-plus--entries' in display order, one per line.")
+
+(defvar-local ilist-plus--source nil
+  "The buffer whose imenu index this Ilist buffer displays.")
+
+(defvar-local ilist-plus--last-location nil
+  "Marker where this Ilist buffer was last updated from; avoids redundant updates.")
+
+(defun ilist-plus--frame-id (frame &optional allocate)
+  "The small positive integer naming FRAME's Ilist buffer, or nil if it has none.
+With ALLOCATE, give FRAME the lowest id not held by another frame instead."
+  (or (frame-parameter frame 'ilist-plus-id)
+      (when allocate
+        (let ((used (delq nil (mapcar (lambda (f) (frame-parameter f 'ilist-plus-id))
+                                      (frame-list))))
+              (id 1))
+          (while (memq id used)
+            (setq id (1+ id)))
+          (set-frame-parameter frame 'ilist-plus-id id)
+          id))))
+
+(defun ilist-plus--drop-duplicate-frame-id (frame)
+  "Clear FRAME's Ilist id if another frame already holds it.
+`clone-frame' copies every frame parameter, so a clone would otherwise
+share its original's Ilist buffer.  The id is reassigned on next use."
+  (let ((id (frame-parameter frame 'ilist-plus-id)))
+    (when (and id
+               (cl-some (lambda (other)
+                          (and (not (eq other frame))
+                               (eql (frame-parameter other 'ilist-plus-id) id)))
+                        (frame-list)))
+      (set-frame-parameter frame 'ilist-plus-id nil))))
+
+(defun ilist-plus--buffer-name (&optional frame allocate)
+  "Name of FRAME's (default: the selected frame's) Ilist buffer.
+Nil if FRAME has no id yet; with ALLOCATE, give it one."
+  (let ((id (ilist-plus--frame-id (or frame (selected-frame)) allocate)))
+    (and id (format "*IListPlus[%d]*" id))))
+
+(defun ilist-plus--buffer (&optional frame)
+  "FRAME's (default: the selected frame's) Ilist buffer, or nil if it has none."
+  (let ((name (ilist-plus--buffer-name frame)))
+    (and name (get-buffer name))))
+
+(defun ilist-plus--ilist-buffer-p (buffer)
+  "Non-nil if BUFFER is a live Ilist buffer."
+  (and (buffer-live-p buffer)
+       (eq (buffer-local-value 'major-mode buffer) 'ilist-plus-major-mode)))
+
+(defun ilist-plus--buffers ()
+  "All live Ilist buffers."
+  (let (result)
+    (dolist (buffer (buffer-list))
+      (when (ilist-plus--ilist-buffer-p buffer)
+        (push buffer result)))
+    (nreverse result)))
+
+(defun ilist-plus--frame-deleted (frame)
+  "Kill FRAME's Ilist buffer when FRAME goes away."
+  (let ((buffer (ilist-plus--buffer frame)))
+    (when buffer
+      (kill-buffer buffer))))
+
+(defun ilist-plus--get-buffer (&optional frame)
+  "Create or return the  FRAME's  IlistPlus buffer.
+Default to the current frame if FRAME isn't supplied."
+  (let* ((frame (or frame (selected-frame)))
+         (buffer (get-buffer-create (ilist-plus--buffer-name frame t))))
+    (with-current-buffer buffer
+      (unless (derived-mode-p 'ilist-plus-major-mode)
+        (ilist-plus-major-mode))
+      (setq ilist-plus--frame frame))
+    buffer))
+
+(defun ilist-plus--current-ibuf ()
+  "Return the current ilistplus buffer for the given buffer."
+  (cond ((ilist-plus--ilist-buffer-p (current-buffer)) (current-buffer))
+        ((ilist-plus--buffer))
+        (t (user-error "No Ilist buffer for this frame"))))
+
+(defun ilist-plus--window (ibuf)
+  "The window showing IBUF in any frame, or nil."
+  (get-buffer-window ibuf t))
+
+;; Faces for the outline entries, by depth (depth 3 and deeper share one).  Containers are bold
+;; without underlining.
+(defface ilist-plus-face
+  '((t))
+  "Parent face for all Ilist entry faces."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-face
+  '((t :inherit ilist-plus-face))
+  "Base face for Ilist entries at every depth."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-face-0
+  '((((class color) (background light)) :inherit ilist-plus-entry-face :foreground "maroon")
+    (((class color) (background dark)) :inherit ilist-plus-entry-face :foreground "gold"))
+  "Face for outermost Ilist entries (depth 0)."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-container-face-0
+  '((t :inherit ilist-plus-entry-face-0 :weight bold))
+  "Face for container entries at depth 0."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-face-1
+  '((((class color) (background light)) :inherit ilist-plus-entry-face :foreground "dark green")
+    (((class color) (background dark)) :inherit ilist-plus-entry-face :foreground "light green"))
+  "Face for Ilist entries at depth 1."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-container-face-1
+  '((t :inherit ilist-plus-entry-face-1 :weight bold))
+  "Face for container entries at depth 1."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-face-2
+  '((((class color) (background light)) :inherit ilist-plus-entry-face :foreground "dark blue")
+    (((class color) (background dark)) :inherit ilist-plus-entry-face :foreground "light blue"))
+  "Face for Ilist entries at depth 2."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-container-face-2
+  '((t :inherit ilist-plus-entry-face-2 :weight bold))
+  "Face for container entries at depth 2."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-face-3
+  '((((class color) (background light)) :inherit ilist-plus-entry-face :foreground "orange red")
+    (((class color) (background dark)) :inherit ilist-plus-entry-face :foreground "sandy brown"))
+  "Face for Ilist entries at depth 3 and deeper."
+  :group 'ilist-plus)
+
+(defface ilist-plus-entry-container-face-3
+  '((t :inherit ilist-plus-entry-face-3 :weight bold))
+  "Face for container entries at depth 3 and deeper."
+  :group 'ilist-plus)
 
 (defvar ilist-plus-fixed-font (face-attribute 'default :family))
 
 ;; Be care to set the font family to one with nerd fonts so the icon renders.
 (defface ilist-plus-icon-face
-  `((t (:inherit mode-line-buffer-id :family ,ilist-plus-fixed-font)))
+  `((t (:inherit (mode-line-buffer-id ilist-plus-face) :family ,ilist-plus-fixed-font)))
   "Face for the icon glyphs in `imenu-list-mode-line-format'."
   :group 'ilist-plus)
 
@@ -181,72 +417,99 @@
 ;; fall back to a plain color when it isn't loaded, since `defface' below
 ;; evaluates this at package-load time, not lazily.
 (defun ilist-plus--modus-color (name overrides &optional fallback)
+  "Get the modus controlled color NAME with OVERRIDES and a FALLBACK color."
   (if (fboundp 'modus-themes-get-color-value)
       (modus-themes-get-color-value name overrides)
     (or fallback "black")))
 
-(defvar ilist-plus-default-window-map
+(defun ilist-plus--hl-foreground ()
+  "Foreground for `ilist-plus-hl-face': modus `fg-hl-imenu', else nil."
+  (and (fboundp 'modus-themes-get-color-value)
+       (modus-themes-get-color-value 'fg-hl-imenu t)))
+
+;; `mode-line-highlight' usually draws a box, which adds pixels around the hovered text and shifts
+;; the icon; drop the box so hovering only changes colors.
+(defface ilist-plus-mode-line-highlight
+  '((t (:inherit mode-line-highlight :box nil)))
+  "Face for the hovered parts of the Ilist mode-line."
+  :group 'ilist-plus)
+
+(defvar ilist-plus-default-key-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mode-line mouse-1] #'quit-window)
     map)
-  "Fallback keymap for `mouse-1' on the *Ilist* mode-line: just closes the
-window. Used by `ilist-plus--build-mode-line-format' when no richer
-map (e.g. `my-modeline-dedicated-window-map', wired in from init.el once
-modeline.el is loaded) is supplied.")
+  "Default keymap for the modeline.")
 
-(defun ilist-plus--build-mode-line-format (&optional window-map)
-  "Build a value for `imenu-list-mode-line-format', using WINDOW-MAP
-\(default `ilist-plus-default-window-map') as the mode-line's local-map."
+(defvar ilist-plus-sort-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map [mode-line mouse-1] #'ilist-plus-cycle-sort)
+    (define-key map [header-line mouse-1] #'ilist-plus-cycle-sort)
+    map)
+  "Keymap of the sort indicator in the Ilist mode-line.")
+
+(defun ilist-plus-mode-line-icon ()
+  "The Ilist mode-line icon, propertized with `ilist-plus-icon-face'."
+  (propertize "󰉹" 'face 'ilist-plus-icon-face))
+
+(defun ilist-plus-mode-line-sort ()
+  "The clickable \"[sort]\" indicator of the current Ilist buffer.
+Nil when the source buffer is gone."
+  (when (buffer-live-p ilist-plus--source)
+    (propertize (format "[%s]" (ilist-plus-current-sort ilist-plus--source))
+		'help-echo "mouse-1: switch the sort order"
+		'mouse-face 'ilist-plus-mode-line-highlight
+		'local-map ilist-plus-sort-map)))
+
+(defun ilist-plus--build-mode-line-format (&optional key-map)
+  "Build the Ilist mode-line format, with KEY-MAP on all but the sort indicator."
   `("%e"
     (:propertize
      ("" mode-line-frame-identification
-      (:propertize "󰐃 󰉹" face ilist-plus-icon-face) " "
-      (:eval (buffer-name imenu-list--displayed-buffer)) "  "
-      (:eval (format "[%s]" (ilist-plus-current-sort imenu-list--displayed-buffer))) "  "
-      mode-line-end-spaces)
+      (:eval (ilist-plus-mode-line-icon)) " "
+      (:eval (and (buffer-live-p ilist-plus--source) (buffer-name ilist-plus--source))))
      help-echo "mouse-1: close the window"
-     mouse-face mode-line-highlight
-     local-map ,(or window-map ilist-plus-default-window-map))))
+     mouse-face ilist-plus-mode-line-highlight
+     local-map ,(or key-map ilist-plus-default-key-map))
+    "  " (:eval (ilist-plus-mode-line-sort)) "  "
+    mode-line-end-spaces))
 
 (defconst ilist-plus-collapsed-marker "▶"
-  "Marker shown for a folded (hidden) imenu-list entry -- in the
-`classic' `ilist-plus-tree-style' it replaces the leading \"+\"; in
-`straight'/`curved' it replaces the container's own connector cell.
+  "Marker shown for a folded (hidden) entry.
+In the `classic' `ilist-plus-tree-style' it precedes the container's name;
+in `straight'/`curved' it replaces the container's own connector cell.
 Shared by all three styles.")
 
 (defconst ilist-plus-expanded-marker "▼"
-  "Marker shown before an unfolded (visible) imenu-list entry, in the
-`classic' `ilist-plus-tree-style'. `straight'/`curved' show no marker
-at all when expanded -- the tree lines already convey the structure.")
+  "Marker shown before an unfolded (visible) entry.
+In the `classic' `ilist-plus-tree-style'. `straight'/`curved' show no
+marker at all when expanded -- the tree lines already convey the
+structure.")
 
 (defun ilist-plus--set-tree-style (symbol value)
-  "`:set' function for `ilist-plus-tree-style': applies VALUE, then
-redraws the *Ilist* buffer (if any) so the change is visible right
-away instead of waiting for the next unrelated refresh."
+  "`:set' function for SYMBOL and VALUE with `ilist-plus-tree-style'.
+Applies VALUE, then redraws every *IListPlus[N]* buffer so the change is
+visible right away instead of waiting for the next unrelated refresh."
   (set-default symbol value)
-  (when (get-buffer imenu-list-buffer-name)
-    (imenu-list-refresh)))
+  (dolist (ibuf (ilist-plus--buffers))
+    (ilist-plus--refresh ibuf)))
 
 (defcustom ilist-plus-tree-style 'classic
-  "Visual style used to render *Ilist* entry indentation and the
-container fold marker.
-
-`classic'  -- imenu-list's original look: plain indentation with a
-              leading \"+ \" marker (swapped for ▶/▼ by ilist-plus).
+  "Visual style used to render *IlistPlus* entry indentation and folds.
+`classic'  -- plain indentation with a leading ▶/▼ marker.
 `straight' -- unicode box-drawing tree lines (├─ └─ │); a collapsed
               container's own connector is replaced by ▶, and an
               expanded container shows no marker at all.
 `curved'   -- same as `straight' but with rounded corners (╰─ instead
               of └─); the collapsed marker is the same ▶ glyph."
-  :type '(choice (const :tag "Classic (+/indent)" classic)
-                  (const :tag "Straight tree lines" straight)
-                  (const :tag "Curved tree lines" curved))
+  :type '(choice (const :tag "Classic (indent)" classic)
+                 (const :tag "Straight tree lines" straight)
+                 (const :tag "Curved tree lines" curved))
   :set #'ilist-plus--set-tree-style
   :group 'ilist-plus)
 
 ;; I need a more visible highlight for the current block
 (defface ilist-plus-hl-face
-  `((t (:foreground ,(ilist-plus--modus-color 'fg-hl-imenu t) :weight bold)))
+  `((t (:inherit ilist-plus-face :foreground ,(ilist-plus--hl-foreground) :weight bold)))
   "A new custom face for highlighting."
   :group 'ilist-plus)
 
@@ -257,96 +520,212 @@ container fold marker.
 ;; 3-char cell per ancestor level -- "│  " if that ancestor has later
 ;; siblings, "   " if it was the last child), then, for entries below
 ;; the root, a 3-char branch cell ("├─ "/"└─ " or "╰─ " when curved).
-;; A container's own branch cell (or, at the root, a reserved 2-char
-;; blank cell) is tagged with the `ilist-plus-fold-marker' text
+;; A container's own branch cell is tagged with the `ilist-plus-fold-marker' text
 ;; property so `ilist-plus--set-marker-at-point' can find and replace
 ;; it with `ilist-plus-collapsed-marker' once the container is
 ;; folded, without ever changing the line's length -- folding only
 ;; ever toggles a `display' override on that fixed-width span.
 
-(defun ilist-plus--tree-ancestor-prefix (ancestor-lasts)
-  "Build the ancestor-guide prefix for ANCESTOR-LASTS, a list (root to
-immediate parent) of whether each ancestor was the last child among
-its own siblings."
-  (mapconcat (lambda (last-p) (if last-p "   " "│  ")) ancestor-lasts ""))
+(cl-defstruct (ilist-plus--node (:constructor ilist-plus--node-create)
+                                (:copier nil))
+  "One line of the outline, built by `ilist-plus--build-nodes'.
+It holds what the renderer and the fold code need to know about a line,
+so neither has to get thread depth or sibling state through recursion."
+  (entry nil :documentation "The imenu entry shown on the line.")
+  (depth 0 :documentation "Nesting depth; 0 for top-level entries.")
+  (last-child nil
+              :documentation "Non-nil if the entry is last among its siblings.")
+  (ancestor-last-children
+   nil
+   :documentation "The `last-child' of each ancestor, outermost first.
+Top-level entries are not drawn as a parent, so they are left out.")
+  (path nil
+        :documentation "Names of the entry and its ancestors, outermost first.")
+  (container-p nil :documentation "Non-nil if the entry has children."))
 
-(defun ilist-plus--tree-branch (last-p style)
-  "The 3-char branch cell for an entry that is (or isn't) LAST-P among
-its siblings, drawn in STYLE (`straight' or `curved'). The corner
-glyph is the only difference between the two styles; the collapsed
-marker that can later replace this whole cell (see
+(defun ilist-plus--node-level (node)
+  "Return NODE's 1-based depth.
+Top-level entries are level 1, as `ilist-plus-autofold-depth' counts them."
+  (1+ (ilist-plus--node-depth node)))
+
+(defun ilist-plus--build-nodes (index-alist)
+  "Return INDEX-ALIST flattened into `ilist-plus--node's, in display order."
+  (let (nodes)
+    (cl-labels
+        ((walk (alist ancestor-last-children path)
+           (let ((count (length alist))
+                 (depth (length path))
+                 (i 0))
+             (dolist (entry alist)
+               (let ((last-child (= i (1- count)))
+                     (entry-path (append path (list (car entry))))
+                     (container-p (and (imenu--subalist-p entry) t)))
+                 (push (ilist-plus--node-create
+                        :entry entry :depth depth :last-child last-child
+                        :ancestor-last-children ancestor-last-children
+                        :path entry-path :container-p container-p)
+                       nodes)
+                 (when container-p
+                   ;; Top-level entries are independent headings, not siblings
+                   ;; under a drawn parent, so their own `last-child' never
+                   ;; feeds a trunk line.
+                   (walk (cdr entry)
+                         (if (= depth 0)
+                             nil
+                           (append ancestor-last-children (list last-child)))
+                         entry-path)))
+               (setq i (1+ i))))))
+      (walk index-alist nil nil))
+    (nreverse nodes)))
+
+(defvar-local ilist-plus--nodes-cache nil
+  "Cons of the `ilist-plus--entries' list and the node vector built from it.")
+
+(defun ilist-plus--nodes ()
+  "The `ilist-plus--node' vector for `ilist-plus--entries'.
+Built once per entries list, not once per caller."
+  (unless (eq (car ilist-plus--nodes-cache) ilist-plus--entries)
+    (setq ilist-plus--nodes-cache
+          (cons ilist-plus--entries
+                (vconcat (ilist-plus--build-nodes ilist-plus--entries)))))
+  (cdr ilist-plus--nodes-cache))
+
+(defvar-local ilist-plus--line-starts-cache nil
+  "Cons of `buffer-chars-modified-tick' and the vector of line start positions.")
+
+(defun ilist-plus--line-starts ()
+  "A vector of the buffer position at which each line of this buffer starts."
+  (let ((tick (buffer-chars-modified-tick)))
+    (unless (eql (car ilist-plus--line-starts-cache) tick)
+      (let (starts)
+        (save-excursion
+          (goto-char (point-min))
+          (while (not (eobp))
+            (push (point) starts)
+            (forward-line 1)))
+        (setq ilist-plus--line-starts-cache (cons tick (vconcat (nreverse starts))))))
+    (cdr ilist-plus--line-starts-cache)))
+
+(defun ilist-plus--tree-ancestor-prefix (ancestor-last-children)
+  "Return the ancestor-guide prefix for ANCESTOR-LAST-CHILDREN.
+ANCESTOR-LAST-CHILDREN lists, outermost to immediate parent, whether
+each ancestor was the last child among its own siblings."
+  (mapconcat (lambda (last-child) (if last-child "   " "│  "))
+             ancestor-last-children ""))
+
+(defun ilist-plus--tree-branch (last-child style)
+  "Return the 3-char branch string for an entry drawn in STYLE.
+LAST-CHILD non-nil means the entry is last among its siblings.  STYLE is
+`straight' or `curved'; the corner glyph is the only difference between
+them.  The collapsed marker that can later replace this whole cell (see
 `ilist-plus-collapsed-marker') is shared by both."
-  (concat (if last-p (if (eq style 'curved) "╰" "└") "├") "─ "))
+  (concat (if last-child (if (eq style 'curved) "╰" "└") "├") "─ "))
 
-(defun ilist-plus--insert-entry-tree (entry depth last-p ancestor-lasts style)
-  "Insert a tree-style line for ENTRY at DEPTH. LAST-P and
-ANCESTOR-LASTS are as in `ilist-plus--tree-ancestor-prefix'/
-`ilist-plus--tree-branch'. STYLE is `straight' or `curved'.
+(defun ilist-plus--get-face (depth subalistp)
+  "The face for an entry at DEPTH and SUBALISTP for containers.
+Under `ilist-plus-imenu-list-compat' the `imenu-list' faces are used
+when they exist, so their customizations carry over."
+  (let ((level (min depth 3)))
+    (or (and ilist-plus-imenu-list-compat
+             (let ((face (intern (format (if subalistp
+                                             "imenu-list-entry-subalist-face-%d"
+                                           "imenu-list-entry-face-%d")
+                                         level))))
+               (and (facep face) face)))
+        (intern (format (if subalistp
+                            "ilist-plus-entry-container-face-%d"
+                          "ilist-plus-entry-face-%d")
+                        level)))))
+
+(defun ilist-plus--button-position (button)
+  "Buffer position of BUTTON as handed to a button action."
+  (cond ((overlayp button) (overlay-start button))
+        ((integer-or-marker-p button) button)
+        ((eventp button) (posn-point (event-end button)))
+        (t (point))))
+
+(defun ilist-plus--action-goto-entry (button)
+  "Button action: jump to the entry BUTTON labels."
+  (goto-char (ilist-plus--button-position button))
+  (ilist-plus-goto-entry))
+
+(defun ilist-plus--action-toggle (button)
+  "Button action: fold/unfold the container BUTTON labels."
+  (goto-char (ilist-plus--button-position button))
+  (ilist-plus-toggle-at-point))
+
+(defun ilist-plus--depth-string (depth)
+  "Indentation prefix for an entry at DEPTH in the `classic' style."
+  (if (> depth 0) (concat (make-string (* 2 depth) ?\s) " ") ""))
+
+(defun ilist-plus--insert-node-classic (node)
+  "Insert the `classic'-style line for NODE."
+  (let ((entry (ilist-plus--node-entry node))
+        (depth (ilist-plus--node-depth node)))
+    (insert (ilist-plus--depth-string depth))
+    (if (ilist-plus--node-container-p node)
+        (insert-button (format "%s %s" ilist-plus-expanded-marker (car entry))
+                       'face (ilist-plus--get-face depth t)
+                       'help-echo (format "Toggle: %s" (car entry))
+                       'follow-link t
+                       'action #'ilist-plus--action-toggle)
+      (insert-button (format "%s" (car entry))
+                     'face (ilist-plus--get-face depth nil)
+                     'help-echo (format "Go to: %s" (car entry))
+                     'follow-link t
+                     'action #'ilist-plus--action-goto-entry))
+    (insert "\n")))
+
+(defun ilist-plus--insert-node-tree (node style)
+  "Insert the tree-style line for NODE, drawn in STYLE.
+STYLE is `straight' or `curved'.
 
 For a container, its own connector cell is part of the button's label,
 not text inserted ahead of it, so a click anywhere on the connector
-toggles the fold, the same as clicking the leading \"+\" does in
-`classic' style. A leaf's branch cell stays outside its button, matching
-`classic', where the indentation ahead of a leaf's name is likewise
-unclickable. Root entries -- leaf or container -- get no cell at all, so
-every root heading lines up flush with the tree lines."
-  (let ((subalistp (imenu--subalist-p entry)))
-    (insert (ilist-plus--tree-ancestor-prefix ancestor-lasts))
-    (if subalistp
-        (let* ((connector (if (= depth 0) "" (ilist-plus--tree-branch last-p style)))
+toggles the fold, the same as clicking the marker does in
+`classic' style.  A leaf's branch cell stays outside its button,
+matching `classic', where the indentation ahead of a leaf's name is
+likewise unclickable."
+  (let ((entry (ilist-plus--node-entry node))
+        (depth (ilist-plus--node-depth node))
+        (last-child (ilist-plus--node-last-child node)))
+    (insert (ilist-plus--tree-ancestor-prefix
+             (ilist-plus--node-ancestor-last-children node)))
+    (if (ilist-plus--node-container-p node)
+        (let* ((connector (if (= depth 0)
+                              ""
+                            (ilist-plus--tree-branch last-child style)))
                (btn-beg (point)))
           (insert-button (concat connector (format "%s" (car entry)))
-                         'face (imenu-list--get-face depth t)
+                         'face (ilist-plus--get-face depth t)
                          'help-echo (format "Toggle: %s" (car entry))
                          'follow-link t
-                         'action #'imenu-list--action-toggle-hs)
+                         'action #'ilist-plus--action-toggle)
           (when (> (length connector) 0)
-            (put-text-property btn-beg (+ btn-beg (length connector)) 'ilist-plus-fold-marker t)))
+            (put-text-property btn-beg (+ btn-beg (length connector))
+                               'ilist-plus-fold-marker t)))
       (when (> depth 0)
-        (insert (ilist-plus--tree-branch last-p style)))
+        (insert (ilist-plus--tree-branch last-child style)))
       (insert-button (format "%s" (car entry))
-                     'face (imenu-list--get-face depth nil)
+                     'face (ilist-plus--get-face depth nil)
                      'help-echo (format "Go to: %s" (car entry))
                      'follow-link t
-                     'action #'imenu-list--action-goto-entry))
+                     'action #'ilist-plus--action-goto-entry))
     (insert "\n")))
 
-(defun ilist-plus--insert-entries-internal-tree (index-alist depth ancestor-lasts style)
-  "Tree-style counterpart to `imenu-list--insert-entries-internal'."
-  (let ((n (length index-alist))
-        (i 0))
-    (dolist (entry index-alist)
-      (setq imenu-list--line-entries (cons entry imenu-list--line-entries))
-      (let ((last-p (= i (1- n))))
-        (ilist-plus--insert-entry-tree entry depth last-p ancestor-lasts style)
-        (when (imenu--subalist-p entry)
-          (ilist-plus--insert-entries-internal-tree
-           (cdr entry) (1+ depth)
-           ;; A root entry's own last-p never feeds its children's trunk --
-           ;; root entries are independent top-level headings, not siblings
-           ;; under a shared drawn parent, so there's nothing to draw a
-           ;; continuation line for. Depth 1+ trunks normally.
-           (if (= depth 0) nil (append ancestor-lasts (list last-p)))
-           style)))
-      (setq i (1+ i)))))
-
-(defun ilist-plus--insert-entries-advice (orig-fn)
-  "`:around' advice for `imenu-list-insert-entries': renders with
-`ilist-plus--insert-entries-internal-tree' when `ilist-plus-tree-style'
-is `straight'/`curved', otherwise defers to ORIG-FN (`classic',
-imenu-list's own rendering) unchanged."
-  (if (eq ilist-plus-tree-style 'classic)
-      (funcall orig-fn)
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (setq imenu-list--line-entries nil)
-      (ilist-plus--insert-entries-internal-tree
-       imenu-list--imenu-entries 0 nil ilist-plus-tree-style)
-      (setq imenu-list--line-entries (nreverse imenu-list--line-entries)))))
+(defun ilist-plus--insert-entries ()
+  "Rebuild the current IlistPlus buffer."
+  (let ((inhibit-read-only t)
+        (nodes (ilist-plus--nodes)))
+    (erase-buffer)
+    (seq-doseq (node nodes)
+      (if (eq ilist-plus-tree-style 'classic)
+          (ilist-plus--insert-node-classic node)
+        (ilist-plus--insert-node-tree node ilist-plus-tree-style)))
+    (setq ilist-plus--line-entries (mapcar #'ilist-plus--node-entry nodes))))
 
 (defun ilist-plus--set-marker-at-point ()
-  "Make the fold marker on the current line display as an arrow
-reflecting whether the block starting here is currently hidden."
+  "Set the fold marker on the current line."
   (save-excursion
     (beginning-of-line)
     (let* ((eol (line-end-position))
@@ -355,12 +734,10 @@ reflecting whether the block starting here is currently hidden."
            (folded (ilist-plus--folded-p (min (point-max) (1+ eol))))
            (inhibit-read-only t))
       (if (eq ilist-plus-tree-style 'classic)
-          (when (looking-at "^ *\\(\\+\\) ")
+          (when (looking-at (concat "^ *\\(" (regexp-quote ilist-plus-expanded-marker) "\\) "))
             (put-text-property (match-beginning 1) (match-end 1)
                                'display
-                               (if folded
-                                   ilist-plus-collapsed-marker
-                                 ilist-plus-expanded-marker)))
+                               (when folded ilist-plus-collapsed-marker)))
         (let ((slot-beg (text-property-any (point) eol 'ilist-plus-fold-marker t)))
           (when slot-beg
             (let ((slot-end (next-single-property-change slot-beg 'ilist-plus-fold-marker nil eol)))
@@ -369,17 +746,15 @@ reflecting whether the block starting here is currently hidden."
                                    (concat ilist-plus-collapsed-marker
                                            (make-string (1- (- slot-end slot-beg)) ?\s)))))))))))
 
-(defun ilist-plus-update-fold-markers ()
-  "Update every foldable entry's marker in the *Ilist* buffer to
-match its current hidden/shown state."
-  (when (get-buffer imenu-list-buffer-name)
-    (with-current-buffer imenu-list-buffer-name
-      (ilist-plus--rebind-buttons)
-      (save-excursion
-        (goto-char (point-min))
-        (while (not (eobp))
-          (ilist-plus--set-marker-at-point)
-          (forward-line 1))))))
+(defun ilist-plus-update-fold-markers (&optional buffer)
+  "Update every foldable entry's marker in BUFFER."
+  (with-current-buffer (or buffer (ilist-plus--current-ibuf))
+    (ilist-plus--rebind-buttons)
+    (save-excursion
+      (goto-char (point-min))
+      (while (not (eobp))
+        (ilist-plus--set-marker-at-point)
+        (forward-line 1)))))
 
 ;;; Direct, hideshow-free folding.
 ;; Emacs 31 rewrote hideshow.el, and its new engine has a reproducible
@@ -405,44 +780,52 @@ match its current hidden/shown state."
   (eq (get-char-property pos 'invisible) ilist-plus--invisible-spec))
 
 (defun ilist-plus--any-folded-p ()
-  "Non-nil if any container in the *Ilist* buffer (current buffer) is
-currently folded."
+  "Return if any container in the IListPlus buffer is currently folded."
   (let (found)
     (dolist (ov (overlays-in (point-min) (point-max)))
       (when (overlay-get ov 'ilist-plus-fold)
         (setq found t)))
     found))
 
-(defun ilist-plus--subtree-end (flat n start base-depth)
-  "Index in FLAT (length N) of the first entry after START whose
-depth is not greater than BASE-DEPTH -- i.e. the end of the subtree
-rooted at START."
-  (let ((i (1+ start)))
-    (while (and (< i n) (> (1+ (cdr (nth i flat))) base-depth))
+(defun ilist-plus--subtree-end (nodes n start)
+  "Return the index of the first node after START outside START's subtree.
+NODES is the vector of `ilist-plus--node's and N its length.  Return N
+when the subtree runs to the end."
+  (let ((i (1+ start))
+        (depth (ilist-plus--node-depth (aref nodes start))))
+    (while (and (< i n) (> (ilist-plus--node-depth (aref nodes i)) depth))
       (setq i (1+ i)))
     i))
 
 (defun ilist-plus--line-span (n i end-i)
-  "Character range to hide for the subtree at line I: from the start of
-line I+1 (i.e. *after* I's own header line and its newline, so the
-header keeps its own line break and stays on its own visual line) to
-the start of line END-I (or `point-max' if END-I runs past the last
-entry, of N total)."
-  (save-excursion
-    (goto-char (point-min))
-    (forward-line (1+ i))
-    (let ((beg (point)))
-      (cons beg (if (>= end-i n)
-                    (point-max)
-                  (goto-char (point-min))
-                  (forward-line end-i)
-                  (point))))))
+  "Character range to hide for the subtree at line I.
+Calculated from the start of line I+1 (i.e. *after* I's own header line
+  and its newline, so the header keeps its own line break and stays on
+  its own visual line) to the start of line END-I (or `point-max' if
+  END-I runs past the last entry, of N total)."
+  (let* ((starts (ilist-plus--line-starts))
+         (len (length starts)))
+    (cons (if (< (1+ i) len) (aref starts (1+ i)) (point-max))
+          (if (and (< end-i n) (< end-i len)) (aref starts end-i) (point-max)))))
 
-;; Setup for the mode, installed on `imenu-list-major-mode-hook' by
-;; `ilist-plus-mode' (see the end of this file). Also removes
-;; hideshow's own activation there -- we fold via our own overlays
-;; above instead.
-(defun ilist-plus--major-mode-setup ()
+(defvar ilist-plus-major-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'ilist-plus-ret-dwim)
+    (define-key map (kbd "SPC") #'ilist-plus-display-dwim)
+    (define-key map (kbd "n") #'next-line)
+    (define-key map (kbd "p") #'previous-line)
+    (define-key map (kbd "TAB") #'ilist-plus-toggle-at-point)
+    (define-key map (kbd "f") #'ilist-plus-toggle-fold-all)
+    (define-key map (kbd "g") #'ilist-plus-refresh)
+    (define-key map (kbd "q") #'ilist-plus-quit-window)
+    (define-key map (kbd "s") #'ilist-plus-switch-sort)
+    map)
+  "Keymap of `ilist-plus-major-mode'.")
+
+(define-derived-mode ilist-plus-major-mode special-mode "Ilist"
+  "Major mode of the per-frame `*IListPlus[N]' outline buffers."
+  (setq-local mode-line-format (or (ilist-plus--opt 'mode-line-format)
+                                   (ilist-plus--build-mode-line-format)))
   ;; Wire in my custom highlight face.
   (setq-local face-remapping-alist '((hl-line ilist-plus-hl-face)))
   ;; High enough priority for this face so it takes precedence
@@ -451,60 +834,43 @@ entry, of N total)."
   ;; Setup the custom invisibility spec we use for folding.
   (add-to-invisibility-spec ilist-plus--invisible-spec)
   (setq-local line-move-ignore-invisible t)
-  ;; Don't show a cursor in the *Ilist* window when it isn't the
-  ;; selected window.
+  ;; Don't show a cursor in the Ilist window when it isn't the selected window.
   (setq-local cursor-in-non-selected-windows nil))
 
  ;;; Autofolding
-(defvar-local ilist-plus-autofold-depth 2 "Initial depth to expand imenu-list window")
+(defvar-local ilist-plus-autofold-depth 2 "Initial depth to expand the ilist-plus window.")
 
 ;; Track whether we've shown this buffer's imenu-list at least once, and
 ;; if so, which containers were folded the last time we looked -- both
 ;; are buffer-local to the *source* buffer (not the shared *Ilist*
 ;; buffer), so each buffer remembers its own fold state independently.
 (defvar-local ilist-plus--folded-once nil
-  "`ilist-plus-fold-below-depth' has folded this buffer's imenu-list.")
+  "Has `ilist-plus-fold-below-depth' folded this buffer's ilist-plus buffer.")
 
 (defvar-local ilist-plus--folded-paths nil
-  "Ancestor-name paths (see `ilist-plus--flatten-paths') of the
-containers that were folded the last time this buffer's *Ilist* was
-displayed. Restored by `ilist-plus--restore-folded-paths' whenever
-the *Ilist* buffer is rebuilt for this buffer again.")
+  "Paths of the containers that were folded when this buffer was last shown.
+Each path is an `ilist-plus--node-path'.  `ilist-plus--restore-folded-paths'
+reapplies them whenever the Ilist is rebuilt for this buffer.")
 
-(defun ilist-plus-fold-below-depth (&optional depth)
-  "Collapse imenu-list entries nested deeper than DEPTH (default
-`ilist-plus-autofold-depth'). Top-level entries are depth 1."
+(defun ilist-plus-fold-below-depth (&optional depth ibuf)
+  "Collapse entries nested deeper than DEPTH in IBUF.
+DEPTH defaults to `ilist-plus-autofold-depth' and IBUF to the current
+Ilist buffer.  Top-level entries are depth 1."
   (interactive)
   (let ((depth (or depth ilist-plus-autofold-depth)))
-    (with-current-buffer imenu-list-buffer-name
-      (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-             (n (length flat)))
+    (with-current-buffer (or ibuf (ilist-plus--current-ibuf))
+      (let* ((nodes (ilist-plus--nodes))
+             (n (length nodes)))
         (dotimes (i n)
-          (let* ((pair (nth i flat))
-                 (entry (car pair))
-                 (entry-depth (1+ (cdr pair))))
-            (when (and (imenu--subalist-p entry) (= entry-depth depth))
-              (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+          (let ((node (aref nodes i)))
+            (when (and (ilist-plus--node-container-p node)
+                       (= (ilist-plus--node-level node) depth))
+              (let* ((end-i (ilist-plus--subtree-end nodes n i))
                      (span (ilist-plus--line-span n i end-i)))
                 (ilist-plus--hide-region (car span) (cdr span))))))))))
 
-(defun ilist-plus--flatten-paths (index-alist path)
-  "Parallel traversal to `ilist-plus--flatten-entries', returning each
-entry's ancestor-name PATH (a list of strings, root to leaf) in the same
-flattened order -- so `(nth i (ilist-plus--flatten-paths tree nil))'
-identifies the same entry as `(nth i (ilist-plus--flatten-entries tree 0))'.
-Used as a position-independent identity for saving/restoring fold state."
-  (apply #'nconc
-         (mapcar (lambda (entry)
-                   (let ((entry-path (append path (list (car entry)))))
-                     (cons entry-path
-                           (when (imenu--subalist-p entry)
-                             (ilist-plus--flatten-paths (cdr entry) entry-path)))))
-                 index-alist)))
-
 (defun ilist-plus--path-prefix-p (prefix path)
-  "Non-nil if PREFIX equals PATH or is one of its ancestor paths --
-i.e. PATH's elements start with all of PREFIX's, in order."
+  "Return if PREFIX equals PATH or is one of its ancestor paths."
   (cond ((null prefix) t)
         ((null path) nil)
         ((equal (car prefix) (car path))
@@ -512,8 +878,7 @@ i.e. PATH's elements start with all of PREFIX's, in order."
         (t nil)))
 
 (defun ilist-plus--remove-paths-with-prefix (prefix paths)
-  "Return PATHS with PREFIX, and every path that has PREFIX as an
-ancestor, removed."
+  "Return all the paths in PATHS that don't start with PREFIX."
   (let (result)
     (dolist (path paths)
       (unless (ilist-plus--path-prefix-p prefix path)
@@ -521,19 +886,11 @@ ancestor, removed."
     (nreverse result)))
 
 (defun ilist-plus--update-folded-paths (fn)
-  "Apply FN to the *source* buffer's saved `ilist-plus--folded-paths'
-and store the result back. FN receives the existing path list and
-returns the new one.
-
+  "Map FN on the *source* buffer's saved folded paths.
 Used by the fold commands to make a targeted, incremental edit to the
-saved fold snapshot, instead of rescanning every container's *current*
-visibility (as `ilist-plus--record-folded-paths' does). A full rescan
-is wrong here because it would also see -- and wrongly persist -- the
-temporarily unfolded state of whatever container
-`ilist-plus-reveal-current-entry' has un-hidden elsewhere in the tree,
-permanently forgetting that it should be folded again once point
-leaves it."
-  (let ((src imenu-list--displayed-buffer))
+  saved fold snapshot, instead of rescanning every container's *current*
+  visibility as `ilist-plus--record-folded-paths' does."
+  (let ((src ilist-plus--source))
     (when (buffer-live-p src)
       (with-current-buffer src
         (setq ilist-plus--folded-paths (funcall fn ilist-plus--folded-paths))))))
@@ -545,95 +902,85 @@ leaves it."
 
 (defun ilist-plus--unfold-path (path)
   "Remove PATH, and any of its descendant paths, from the saved
-snapshot -- unfolding a container also discards (removes the fold
-overlays of) everything nested under it, so their paths shouldn't be
-restored as folded either."
+  snapshot -- unfolding a container also discards (removes the fold
+							   overlays of) everything nested under it, so their paths shouldn't be
+  restored as folded either."
   (ilist-plus--update-folded-paths
    (lambda (paths) (ilist-plus--remove-paths-with-prefix path paths))))
 
-(defun ilist-plus--record-folded-paths ()
-  "Snapshot which containers are currently folded in the *Ilist* buffer
-and save that snapshot on `imenu-list--displayed-buffer' as
-`ilist-plus--folded-paths', so `ilist-plus--restore-folded-paths' can
-reapply it the next time this buffer's *Ilist* is rebuilt -- e.g. after
-switching to another buffer and back, or after a reindex."
-  (let ((ilist (get-buffer imenu-list-buffer-name))
-        (src imenu-list--displayed-buffer))
+(defun ilist-plus--record-folded-paths (ilist)
+  "Save the folded containers of the Ilist buffer ILIST on its source buffer.
+Store their paths in `ilist-plus--folded-paths', so that
+`ilist-plus--restore-folded-paths' can reapply them the next time the
+Ilist is rebuilt, e.g. after switching buffers or after a reindex."
+  (let ((src (buffer-local-value 'ilist-plus--source ilist)))
     (when (and ilist (buffer-live-p src))
       (let (folded)
         (with-current-buffer ilist
-          (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-                 (paths (ilist-plus--flatten-paths imenu-list--imenu-entries nil))
-                 (n (length flat)))
+          (let* ((nodes (ilist-plus--nodes))
+                 (n (length nodes)))
             (dotimes (i n)
-              (let* ((pair (nth i flat))
-                     (entry (car pair))
-                     (entry-depth (1+ (cdr pair))))
-                (when (imenu--subalist-p entry)
-                  (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+              (let ((node (aref nodes i)))
+                (when (ilist-plus--node-container-p node)
+                  (let* ((end-i (ilist-plus--subtree-end nodes n i))
                          (span (ilist-plus--line-span n i end-i)))
                     (when (ilist-plus--folded-p (car span))
-                      (push (nth i paths) folded))))))))
+                      (push (ilist-plus--node-path node) folded))))))))
         (with-current-buffer src
           (setq ilist-plus--folded-paths folded))))))
 
 (defun ilist-plus--restore-folded-paths (paths)
-  "Fold every container in the *Ilist* buffer (current buffer) whose
-ancestor-name path is a member of PATHS, as produced by
-`ilist-plus--record-folded-paths'. Matching by name path rather than
-position means folds survive a rebuild even if entries shifted lines."
+  "Fold the containers of the current Ilist buffer whose path is in PATHS.
+PATHS is a list as produced by `ilist-plus--record-folded-paths'.
+Matching by name path rather than position lets folds survive a rebuild
+even if entries shifted lines."
+  (ilist-plus--show-region (point-min) (point-max))
   (when paths
-    (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-           (flat-paths (ilist-plus--flatten-paths imenu-list--imenu-entries nil))
-           (n (length flat)))
+    (let* ((nodes (ilist-plus--nodes))
+           (n (length nodes)))
       (dotimes (i n)
-        (let* ((pair (nth i flat))
-               (entry (car pair))
-               (entry-depth (1+ (cdr pair))))
-          (when (and (imenu--subalist-p entry)
-                     (member (nth i flat-paths) paths))
-            (let* ((end-i (ilist-plus--subtree-end flat n i entry-depth))
+        (let ((node (aref nodes i)))
+          (when (and (ilist-plus--node-container-p node)
+                     (member (ilist-plus--node-path node) paths))
+            (let* ((end-i (ilist-plus--subtree-end nodes n i))
                    (span (ilist-plus--line-span n i end-i)))
               (ilist-plus--hide-region (car span) (cdr span)))))))))
 
-(defun ilist-plus-fold-below-depth-once (&optional depth)
-  "The first time this buffer's *Ilist* is shown, apply the default
-depth-based fold; every time after, restore this buffer's own saved
-fold snapshot instead (see `ilist-plus--folded-paths'), then refresh
-fold markers. `imenu-list-update-hook' (which calls this) always runs
-with the *source* buffer as current, not the *Ilist* buffer -- so
-`ilist-plus--folded-once' and `ilist-plus--folded-paths' are read and
-written explicitly via `imenu-list--displayed-buffer' rather than
-relying on whatever happens to be current."
-  (let ((ilist (get-buffer imenu-list-buffer-name))
-        (src imenu-list--displayed-buffer))
+(defun ilist-plus-fold-below-depth-once (ilist &optional depth)
+  "The first time a buffer is shown in the Ilist buffer ILIST, apply the
+  default depth-based fold; every time after, restore that buffer's own
+  saved fold snapshot instead (see `ilist-plus--folded-paths'), then
+  refresh fold markers. This runs with the *source* buffer as current, not
+  ILIST -- so `ilist-plus--folded-once' and `ilist-plus--folded-paths' are
+  read and written explicitly via ILIST's `ilist-plus--source' rather than
+  relying on whatever happens to be current."
+  (let ((src (buffer-local-value 'ilist-plus--source ilist)))
     (when (and ilist (buffer-live-p src))
       (with-current-buffer ilist
         (if (buffer-local-value 'ilist-plus--folded-once src)
             (ilist-plus--restore-folded-paths
              (buffer-local-value 'ilist-plus--folded-paths src))
-          (ilist-plus-fold-below-depth depth)
+          (ilist-plus-fold-below-depth depth ilist)
           (with-current-buffer src (setq ilist-plus--folded-once t))))
-      (ilist-plus--record-folded-paths)
-      (with-current-buffer ilist
-        (ilist-plus-update-fold-markers)))))
+      (ilist-plus--record-folded-paths ilist)
+      (ilist-plus-update-fold-markers ilist))))
 
 (defun ilist-plus--relocate-hidden-highlight (beg end)
   "If the *Ilist* window's tracked highlight is currently sitting
-inside BEG..END -- a span this command just folded -- move it back
-to the line right before BEG (the container whose fold covered it,
-always left visible) and refresh `hl-line-highlight' there.
+  inside BEG..END -- a span this command just folded -- move it back
+  to the line right before BEG (the container whose fold covered it,
+				    always left visible) and refresh `hl-line-highlight' there.
 
-Without this, folding a section that contains the entry currently
-tracked from the *source* buffer leaves the highlight/window-point
-stranded on a now-invisible line: `ilist-plus-reveal-current-entry'
-(which would otherwise fix this up) only runs as part of
-`imenu-list-update', and `imenu-list-update' skips its own work
-whenever the *source* buffer's point hasn't moved since the last
-update -- which it hasn't, since this fold was triggered by
-interacting with the *Ilist* buffer directly, not by moving around
-in the source buffer."
-  (let ((window (get-buffer-window (current-buffer))))
+  Without this, folding a section that contains the entry currently
+  tracked from the *source* buffer leaves the highlight/window-point
+  stranded on a now-invisible line: `ilist-plus-reveal-current-entry'
+  (which would otherwise fix this up) only runs as part of
+  `imenu-list-update', and `imenu-list-update' skips its own work
+  whenever the *source* buffer's point hasn't moved since the last
+  update -- which it hasn't, since this fold was triggered by
+  interacting with the *Ilist* buffer directly, not by moving around
+  in the source buffer."
+  (let ((window (ilist-plus--window (current-buffer))))
     (when window
       (let ((pos (window-point window)))
         (when (and (>= pos beg) (< pos end))
@@ -642,62 +989,57 @@ in the source buffer."
             (hl-line-highlight)))))))
 
 (defun ilist-plus-fold-children (&optional depth)
-  "Fold the entries DEPTH levels (default 1, i.e. the entry's direct
-children) below the entry at point in the *Ilist* buffer -- folding a
-child hides ITS content, which is what makes the grandchildren (DEPTH+1)
-disappear from view while the children themselves stay visible, just
-collapsed. Discards any manual toggles within that subtree; the rest of
-the tree is left untouched. Bound to \"c\"; always resets the subtree
-under point from a clean, fully-shown state before refolding it."
+  "Fold the entries DEPTH levels below the entry at point.
+DEPTH defaults to 1, the entry's direct children.  Folding a child hides
+its content, so the grandchildren disappear while the children stay
+visible, just collapsed.  Any manual toggles within the subtree are
+discarded and the rest of the tree is left untouched.  The subtree is
+always reset to a fully shown state before it is refolded."
   (interactive)
   (let ((depth (or depth 1)))
-    (with-current-buffer imenu-list-buffer-name
-      (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-             (paths (ilist-plus--flatten-paths imenu-list--imenu-entries nil))
-             (n (length flat))
+    (with-current-buffer (ilist-plus--current-ibuf)
+      (let* ((nodes (ilist-plus--nodes))
+             (n (length nodes))
              (start (1- (line-number-at-pos (point))))
-             (base-depth (1+ (cdr (nth start flat))))
-             (target-depth (+ base-depth depth))
-             (end (ilist-plus--subtree-end flat n start base-depth)))
+             (base (or (and (< start n) (aref nodes start))
+                       (user-error "No entry on this line")))
+             (target-level (+ (ilist-plus--node-level base) depth))
+             (end (ilist-plus--subtree-end nodes n start)))
         (let ((span (ilist-plus--line-span n start end)))
           (ilist-plus--show-region (car span) (cdr span))
-          (ilist-plus--unfold-path (nth start paths)))
+          (ilist-plus--unfold-path (ilist-plus--node-path base)))
         (let ((i (1+ start)))
           (while (< i end)
-            (let* ((pair (nth i flat))
-                   (entry (car pair))
-                   (entry-depth (1+ (cdr pair))))
-              (when (and (imenu--subalist-p entry) (= entry-depth target-depth))
-                (let* ((sub-end (ilist-plus--subtree-end flat n i entry-depth))
+            (let ((node (aref nodes i)))
+              (when (and (ilist-plus--node-container-p node)
+                         (= (ilist-plus--node-level node) target-level))
+                (let* ((sub-end (ilist-plus--subtree-end nodes n i))
                        (span (ilist-plus--line-span n i sub-end)))
                   (ilist-plus--hide-region (car span) (cdr span))
                   (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
-                  (ilist-plus--fold-path (nth i paths)))))
+                  (ilist-plus--fold-path (ilist-plus--node-path node)))))
             (setq i (1+ i)))))))
   (ilist-plus-update-fold-markers))
 
 (defun ilist-plus-toggle-at-point ()
-  "Toggle folding of the container entry at point in the *Ilist* buffer.
-Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB/\"f\")."
+  "Toggle folding of the container entry at point in the Ilist buffer.
+Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (interactive)
-  (with-current-buffer imenu-list-buffer-name
-    (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-           (n (length flat))
+  (with-current-buffer (ilist-plus--current-ibuf)
+    (let* ((nodes (ilist-plus--nodes))
+           (n (length nodes))
            (start (1- (line-number-at-pos (point))))
-           (pair (nth start flat))
-           (entry (car pair)))
-      (when (imenu--subalist-p entry)
-        (let* ((path (nth start (ilist-plus--flatten-paths imenu-list--imenu-entries nil)))
-               (base-depth (1+ (cdr pair)))
-               (end (ilist-plus--subtree-end flat n start base-depth))
+           (node (and (< start n) (aref nodes start))))
+      (when (and node (ilist-plus--node-container-p node))
+        (let* ((end (ilist-plus--subtree-end nodes n start))
                (span (ilist-plus--line-span n start end)))
           (if (ilist-plus--folded-p (car span))
               (progn
                 (ilist-plus--show-region (car span) (cdr span))
-                (ilist-plus--unfold-path path))
+                (ilist-plus--unfold-path (ilist-plus--node-path node)))
             (ilist-plus--hide-region (car span) (cdr span))
             (ilist-plus--relocate-hidden-highlight (car span) (cdr span))
-            (ilist-plus--fold-path path))))))
+            (ilist-plus--fold-path (ilist-plus--node-path node)))))))
   ;; A full marker refresh, not just the toggled line's -- `show-region'
   ;; removes every nested fold overlay in the span, so any child
   ;; containers that were folded need their own arrow flipped back to
@@ -706,36 +1048,26 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB/\"f\")."
 
 (defun ilist-plus-toggle-fold-all ()
   "Toggle the whole *Ilist* buffer between fully unfolded and folded
-down to `ilist-plus-autofold-depth'. Bound to \"f\": if anything in the
-tree is currently folded, unfolds everything; otherwise refolds it
-back down to the autofold depth."
+  down to `ilist-plus-autofold-depth'. Bound to \"f\": if anything in the
+  tree is currently folded, unfolds everything; otherwise refolds it
+  back down to the autofold depth."
   (interactive)
-  (with-current-buffer imenu-list-buffer-name
+  (with-current-buffer (ilist-plus--current-ibuf)
     (if (ilist-plus--any-folded-p)
         (progn
           (ilist-plus--show-region (point-min) (point-max))
           (ilist-plus--update-folded-paths (lambda (_) nil)))
       (ilist-plus-fold-below-depth)
-      (ilist-plus--record-folded-paths)))
+      (ilist-plus--record-folded-paths (current-buffer))))
   (ilist-plus-update-fold-markers))
 
 
-;; `imenu-list-insert-entries' erases and rebuilds the whole *Ilist* buffer
+;; `ilist-plus--insert-entries' erases and rebuilds the whole Ilist buffer
 ;; whenever the source buffer's imenu entries actually change (e.g. a real
-;; edit triggers a reindex, or the displayed buffer changed) -- that wipes
-;; our fold overlays. `ilist-plus-fold-below-depth-once' (run from
-;; `imenu-list-update-hook' right after every such rebuild) recreates them
+;; edit triggers a reindex, or the displayed buffer changed). That wipes
+;; our fold overlays but `ilist-plus-fold-below-depth-once' (run from
+;; `ilist-plus--update-inner' right after every update) recreates them
 ;; from `ilist-plus--folded-paths', so nothing extra is needed here.
-
-;; The simplified hide/show toggle override at a mouse click event
-(defun imenu-list--action-toggle-hs (event)
-  (let ((window (posn-window (event-end event)))
-        (pos (posn-point (event-end event)))
-        (ilist-buffer (get-buffer imenu-list-buffer-name)))
-    (when (and (windowp window) (eql (window-buffer window) ilist-buffer))
-      (with-current-buffer ilist-buffer
-        (goto-char pos)
-        (ilist-plus-toggle-at-point)))))
 
 ;; TAB is a separate, keyboard-only concern: `button-map' (which
 ;; every button's `keymap' overlay property is `eq' to -- not a
@@ -752,47 +1084,368 @@ back down to the autofold depth."
     (define-key map (kbd "TAB") #'ilist-plus-toggle-at-point)
     map)
   "Like `button-map', but TAB toggles the *Ilist* fold instead of
-navigating between buttons.")
+  navigating between buttons.")
 
 (defun ilist-plus--rebind-buttons ()
   "Point every button overlay in the *Ilist* buffer at
-`ilist-plus-button-keymap' instead of the shared global `button-map'.
-Idempotent -- cheap enough to call on every marker refresh."
+  `ilist-plus-button-keymap' instead of the shared global `button-map'.
+  Idempotent -- cheap enough to call on every marker refresh."
   (dolist (ov (overlays-in (point-min) (point-max)))
     (when (and (overlay-get ov 'button)
                (eq (overlay-get ov 'keymap) button-map))
       (overlay-put ov 'keymap ilist-plus-button-keymap))))
 
-;; Refold
-(defun ilist-plus-after-imenu-list-toggle (&rest _args)
-  "Run custom code after `imenu-list-smart-toggle` occurs."
+;; Fold state is remembered per *source* buffer.  Reopening an Ilist starts every buffer over at the
+;; default fold, except those still displayed by another frame's Ilist.
+(defun ilist-plus-reset-fold-state (&optional except)
+  "Forget every buffer's saved fold state, other than those in the list EXCEPT."
   (dolist (buf (buffer-list))
-    (with-current-buffer buf
-      (when (local-variable-p 'ilist-plus--folded-once)
-	(setq ilist-plus--folded-once nil))
-      (when (local-variable-p 'ilist-plus--folded-paths)
-	(setq ilist-plus--folded-paths nil)))))
+    (unless (memq buf except)
+      (with-current-buffer buf
+        (when (local-variable-p 'ilist-plus--folded-once)
+          (setq ilist-plus--folded-once nil))
+        (when (local-variable-p 'ilist-plus--folded-paths)
+          (setq ilist-plus--folded-paths nil))))))
+
+(defun ilist-plus--live-sources ()
+  "Source buffers currently displayed by a visible Ilist window."
+  (let (sources)
+    (dolist (ibuf (ilist-plus--buffers))
+      (when (ilist-plus--window ibuf)
+        (push (buffer-local-value 'ilist-plus--source ibuf) sources)))
+    (delq nil sources)))
+
+;;; Updating
+
+(defun ilist-plus--rescan-imenu ()
+  "Force imenu to rescan the current buffer, applying the sort strategy."
+  (setq imenu--index-alist nil)
+  (imenu--make-index-alist)
+  (ilist-plus-sort-advice))
+
+;; Rescanning makes imenu walk the whole buffer each time the Ilist updates, even when nothing has
+;; changed since the last scan. Skip that for buffers that haven't been modified, and whose indexing
+;; setup hasn't changed, since we last collected entries, and reuse the previously generated tree.
+;; A forced update always rescans, since some indexers (eglot) change without the buffer changing.
+(defvar-local ilist-plus--last-tick nil
+  "`buffer-chars-modified-tick' as of the last imenu rescan for the Ilist.")
+
+(defvar-local ilist-plus--last-index-setup nil
+  "What determined the index at the last imenu rescan for the Ilist.")
+
+(defun ilist-plus--index-setup ()
+  "The current buffer's settings that, besides its text, determine its index."
+  (list ilist-plus-sort-strategy imenu-create-index-function imenu-generic-expression))
+
+(defun ilist-plus--collect-entries (ibuf &optional force)
+  "Index the current buffer into IBUF, the Ilist buffer to show it in.
+Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
+Signals `imenu-unavailable' when the buffer has no index."
+  (unless (and (not force)
+               imenu--index-alist
+               ilist-plus--last-tick
+               (= ilist-plus--last-tick (buffer-chars-modified-tick))
+               (equal ilist-plus--last-index-setup (ilist-plus--index-setup)))
+    (ilist-plus--rescan-imenu)
+    (setq ilist-plus--last-tick (buffer-chars-modified-tick)
+          ilist-plus--last-index-setup (copy-tree (ilist-plus--index-setup))))
+  (let ((source (current-buffer))
+        (entries imenu--index-alist))
+    (with-current-buffer ibuf
+      (unless (eq ilist-plus--source source)
+        (force-mode-line-update))
+      ;; Keep the old list when the index is unchanged so the cached nodes stay valid.
+      (unless (equal ilist-plus--entries entries)
+        (setq ilist-plus--entries entries))
+      (setq ilist-plus--source source))))
+
+(defun ilist-plus--clear (ibuf)
+  "Empty the Ilist buffer IBUF."
+  (with-current-buffer ibuf
+    (setq ilist-plus--entries nil
+          ilist-plus--line-entries nil)
+    (let ((inhibit-read-only t))
+      (erase-buffer))))
+
+(defun ilist-plus--position-translator ()
+  "A function turning an imenu position of this buffer into a buffer position."
+  (cond
+   ((and (ilist-plus--opt 'custom-position-translator)
+         (funcall (ilist-plus--opt 'custom-position-translator))))
+   ;; semantic uses overlays, return the overlay's start as position
+   ((or (eq imenu-create-index-function 'semantic-create-imenu-index)
+        (and (eq imenu-create-index-function
+                 'spacemacs/python-imenu-create-index-python-or-semantic)
+             (bound-and-true-p semantic-mode)))
+    #'overlay-start)
+   ;; An array position was created by `eglot-imenu'; anything else by the default indexer.
+   ((and (fboundp #'eglot-managed-p) (eglot-managed-p))
+    (lambda (pos)
+      (if (arrayp pos)
+          (eglot--lsp-position-to-point (plist-get (plist-get (aref pos 0) :range) :start) t)
+        pos)))
+   (t #'identity)))
+
+;; `ilist-plus--current-entry' skips subalist (container) entries when deciding which line to
+;; highlight, since a plain subalist cons has no position of its own. But `org-imenu-get-tree'
+;; still stamps each entry's *name* string with an `org-imenu-marker' text property pointing at
+;; that heading's own position, even for headings that end up container-only (i.e. any heading with
+;; a child heading, like "IMenu" in tour.org). Recover that so point-in-container also highlights
+;; the container's own line instead of falling back to the previous sibling.
+(defun ilist-plus--entry-position (entry &optional translator)
+  "Return a comparable buffer position for ENTRY, or nil if none exists.
+TRANSLATOR is `ilist-plus--position-translator''s value for the source
+buffer; pass it when looking up many entries so it is only made once."
+  (if (imenu--subalist-p entry)
+      (get-text-property 0 'org-imenu-marker (car entry))
+    (funcall (or translator (ilist-plus--position-translator))
+             (if (listp (cdr entry)) (cadr entry) (cdr entry)))))
+
+(defun ilist-plus--current-entry (line-entries)
+  "The entry of LINE-ENTRIES that point in the current (source) buffer is in."
+  (let ((point-pos (point-marker))
+        (offset (point-min-marker))
+        (translator (ilist-plus--position-translator))
+        match-entry)
+    (dolist (entry line-entries match-entry)
+      (let ((entry-pos (ilist-plus--entry-position entry translator)))
+        (when (and entry-pos (<= offset entry-pos point-pos))
+          (setq offset entry-pos)
+          (setq match-entry entry))))))
+
+(defun ilist-plus--show-current-entry (ibuf)
+  "Move IBUF's window point to the entry the current (source) buffer's point is in."
+  (let ((window (ilist-plus--window ibuf)))
+    (when window
+      (let* ((line-entries (buffer-local-value 'ilist-plus--line-entries ibuf))
+             (line (cl-position (ilist-plus--current-entry line-entries)
+                                line-entries :test #'eq)))
+        (with-selected-window window
+          (goto-char (point-min))
+          (forward-line (or line 0))
+          (hl-line-mode 1))))))
+
+(defun ilist-plus--resize-window (ibuf)
+  "Fit IBUF's window to its content."
+  (when (buffer-local-value 'ilist-plus--line-entries ibuf)
+    (let ((fit-window-to-buffer-horizontally t))
+      (dolist (window (get-buffer-window-list ibuf nil t))
+        (fit-window-to-buffer window)))))
 
 ;; When the tracked entry is inside a currently-folded block, temporarily unfold whatever hides it
 ;; (even several containers deep) so the actual entry line is visible and highlighted, instead of
 ;; just moving the highlight up to the nearest visible ancestor header. The overlays we delete below
 ;; are never recorded into `ilist-plus--folded-paths', so they are recreated when folding is
 ;; reapplied when moving entries.
-(defun ilist-plus-reveal-current-entry (&rest _)
-  (let ((window (get-buffer-window imenu-list-buffer-name)))
+(defun ilist-plus-reveal-current-entry (ibuf)
+  "Unfold whatever hides the tracked entry in IBUF's window and highlight it."
+  (let ((window (ilist-plus--window ibuf)))
     (when window
-      (let* ((buf (window-buffer window))
-             (pos (window-point window))
-             (revealed nil))
-        (with-current-buffer buf
+      (let ((pos (window-point window))
+            (revealed nil))
+        (with-current-buffer ibuf
           (dolist (ov (overlays-at pos))
             (when (overlay-get ov 'ilist-plus-fold)
               (delete-overlay ov)
               (setq revealed t))))
         (when revealed
-          (ilist-plus-update-fold-markers))
+          (ilist-plus-update-fold-markers ibuf))
         (with-selected-window window
           (hl-line-highlight))))))
+
+(defun ilist-plus--update-inner (ibuf force)
+  "Update the Ilist buffer IBUF from the current (source) buffer's point.
+FORCE will always do an update even if nothing has changed."
+  (catch 'index-failure
+    (let ((old-entries (buffer-local-value 'ilist-plus--entries ibuf))
+          (last-location (buffer-local-value 'ilist-plus--last-location ibuf))
+          (location (point-marker)))
+      ;; don't update if `point' didn't move
+      (unless (and (null force)
+                   last-location
+                   (eq (marker-buffer last-location) (current-buffer))
+                   (= location last-location))
+        (with-current-buffer ibuf
+          (setq ilist-plus--last-location location))
+        (condition-case nil
+            (ilist-plus--collect-entries ibuf force)
+          (imenu-unavailable
+           (if (ilist-plus--opt 'persist-when-imenu-index-unavailable)
+               (throw 'index-failure nil)
+             (ilist-plus--clear ibuf))))
+        (when (or force
+                  (not (eq old-entries (buffer-local-value 'ilist-plus--entries ibuf))))
+          (with-current-buffer ibuf
+            (ilist-plus--insert-entries)))
+        (when (ilist-plus--opt 'update-current-entry)
+          (ilist-plus--show-current-entry ibuf))
+        (when (ilist-plus--opt 'auto-resize)
+          (ilist-plus--resize-window ibuf))
+        ;; We have to fold before highlighting.
+        (ilist-plus-fold-below-depth-once ibuf)
+        (ilist-plus-highlight-modified-entries ibuf)
+        (ilist-plus--run-hooks 'update-hook)
+        (ilist-plus-reveal-current-entry ibuf)
+        nil))))
+
+(defun ilist-plus-update (&optional force frame source)
+  "Update FRAME's (default: the selected frame's) Ilist buffer.
+  The outline is built from SOURCE, or by default from the buffer shown in
+  FRAME's selected window; nothing happens when that is an Ilist buffer
+  itself.  Unless FORCE is non-nil, nothing happens either when point
+  hasn't moved since the last update."
+  (let* ((frame (or frame (selected-frame)))
+         (ibuf (ilist-plus--buffer frame)))
+    (when (and ibuf (frame-live-p frame))
+      (let* ((window (frame-selected-window frame))
+             (src (or source (window-buffer window)))
+             (pos (if source
+                      (with-current-buffer source (point))
+                    (window-point window))))
+        (when (and (buffer-live-p src)
+                   (not (ilist-plus--ilist-buffer-p src)))
+          (with-current-buffer src
+            (save-excursion
+              (goto-char pos)
+              (ilist-plus--update-inner ibuf force))))))))
+
+(defun ilist-plus--refresh (ibuf)
+  "Rebuild the Ilist buffer IBUF from its source buffer."
+  (let ((src (buffer-local-value 'ilist-plus--source ibuf))
+        (frame (buffer-local-value 'ilist-plus--frame ibuf)))
+    (when (and (buffer-live-p src) (frame-live-p frame))
+      (ilist-plus-update t frame src))))
+
+(defun ilist-plus-refresh ()
+  "Refresh the current frame's Ilist."
+  (interactive)
+  (ilist-plus--refresh (ilist-plus--current-ibuf)))
+
+;;; Timer
+
+;; One idle timer serves every frame: each visible Ilist is updated from its own frame's
+;; selected window.  It stops itself once no Ilist window is left.
+(defvar ilist-plus--timer nil)
+
+(defun ilist-plus--stop-timer ()
+  (when ilist-plus--timer
+    (cancel-timer ilist-plus--timer)
+    (setq ilist-plus--timer nil)))
+
+(defun ilist-plus--update-all ()
+  (let (any)
+    (dolist (ibuf (ilist-plus--buffers))
+      (let ((frame (buffer-local-value 'ilist-plus--frame ibuf)))
+        (when (and (frame-live-p frame) (get-buffer-window ibuf frame))
+          (setq any t)
+          (ilist-plus-update nil frame))))
+    (unless any
+      (ilist-plus--stop-timer))))
+
+(defun ilist-plus--start-timer ()
+  (when (and (ilist-plus--opt 'auto-update) (not ilist-plus--timer))
+    (setq ilist-plus--timer
+          (run-with-idle-timer (ilist-plus--opt 'idle-update-delay) t #'ilist-plus--update-all))))
+
+;;; Display and toggle
+
+(defun ilist-plus--split-size ()
+  "The size argument for `split-window' from `ilist-plus-size'."
+  (let ((size (ilist-plus--opt 'size))
+        (frame-size (if (memq (ilist-plus--opt 'position) '(left right))
+                        (frame-width)
+                      (frame-height))))
+    (if (integerp size)
+        (- size)
+      (- (round (* frame-size size))))))
+
+(defun ilist-plus--display-buffer (buffer alist)
+  "`display-buffer' action showing BUFFER in a side window of the selected frame."
+  (or (get-buffer-window buffer)
+      (let ((window (split-window (frame-root-window) (ilist-plus--split-size)
+                                  (ilist-plus--opt 'position))))
+        (window--display-buffer buffer window 'window alist)
+        (set-window-dedicated-p window t)
+        window)))
+
+(defun ilist-plus--open ()
+  "Show the selected frame's Ilist, built from the current buffer."
+  (let ((source (current-buffer))
+        (ibuf (ilist-plus--get-buffer)))
+    (ilist-plus-reset-fold-state (ilist-plus--live-sources))
+    (ilist-plus--start-timer)
+    (if (ilist-plus--opt 'focus-after-activation)
+        (pop-to-buffer ibuf '(ilist-plus--display-buffer))
+      (display-buffer ibuf '(ilist-plus--display-buffer)))
+    (ilist-plus-update t (selected-frame) source)))
+
+(defun ilist-plus--close (&optional frame)
+  "Hide FRAME's (default: the selected frame's) Ilist."
+  (let* ((frame (or frame (selected-frame)))
+         (ibuf (ilist-plus--buffer frame)))
+    (when ibuf
+      (ignore-errors (quit-windows-on ibuf nil frame))
+      (bury-buffer ibuf))
+    (unless (cl-some #'ilist-plus--window (ilist-plus--buffers))
+      (ilist-plus--stop-timer))))
+
+;;;###autoload
+(defun ilist-plus-toggle ()
+  "Show or hide the Ilist of the selected frame, leaving other frames' alone.
+Does nothing but print an error unless `ilist-plus-mode' is enabled."
+  (interactive)
+  (if (not ilist-plus-mode)
+      (message "ilist-plus-toggle: enable `ilist-plus-mode' first")
+    (let ((ibuf (ilist-plus--buffer)))
+      (if (and ibuf (get-buffer-window ibuf))
+          (ilist-plus--close)
+        (ilist-plus--open)))))
+
+(defun ilist-plus-quit-window ()
+  "Hide this Ilist's window."
+  (interactive)
+  (ilist-plus--close (buffer-local-value 'ilist-plus--frame (ilist-plus--current-ibuf))))
+;;; Jumping to entries
+
+(defun ilist-plus--find-entry ()
+  "The entry on the current line of an Ilist buffer."
+  (nth (1- (line-number-at-pos)) ilist-plus--line-entries))
+
+(defun ilist-plus--goto-entry (entry)
+  "Jump to ENTRY in the source buffer of the current Ilist buffer."
+  (unless entry
+    (user-error "No entry on this line"))
+  (let ((ibuf (current-buffer))
+        (source ilist-plus--source)
+        (frame ilist-plus--frame))
+    (unless (buffer-live-p source)
+      (user-error "The buffer this Ilist was built from is gone"))
+    (let ((window (get-buffer-window source frame)))
+      (if window
+          (select-window window)
+        (pop-to-buffer source)))
+    (imenu entry)
+    (ilist-plus--run-hooks 'after-jump-hook)
+    (ilist-plus--show-current-entry ibuf)))
+
+(defun ilist-plus-goto-entry ()
+  "Switch to the source buffer and show the entry on this line."
+  (interactive)
+  (ilist-plus--goto-entry (ilist-plus--find-entry)))
+
+(defun ilist-plus-ret-dwim ()
+  "Jump to or fold the entry at point."
+  (interactive)
+  (let ((entry (ilist-plus--find-entry)))
+    (if (imenu--subalist-p entry)
+        (ilist-plus-toggle-at-point)
+      (ilist-plus--goto-entry entry))))
+
+(defun ilist-plus-display-dwim ()
+  "Show or fold the entry at point without leaving the Ilist window."
+  (interactive)
+  (save-selected-window
+    (ilist-plus-ret-dwim)))
 
 ;;; Hierarchical treesitter tree parsing
 
@@ -852,9 +1505,6 @@ Idempotent -- cheap enough to call on every marker refresh."
   (when (eq ilist-plus-sort-strategy 'alphabetical)
     (setq imenu--index-alist (ilist-plus-sort-alphabetically))))
 
-(define-advice imenu-list-rescan-imenu (:after ())
-  (ilist-plus-sort-advice))
-
 ;; Custom sorting function that alphabetizes per imenu object type.  There is no built in facility
 ;; to extend sorting so we have to wire this in via advice This is written generically to handle
 ;; elisp which just inserts all the functions as leaf nodes and java lsp/treesitter which insert
@@ -894,7 +1544,7 @@ Idempotent -- cheap enough to call on every marker refresh."
 ;; regardless of strategy, so it's only offered there.
 (defun ilist-plus-switch-sort (strategy)
   (interactive
-   (with-current-buffer imenu-list--displayed-buffer
+   (with-current-buffer (buffer-local-value 'ilist-plus--source (ilist-plus--current-ibuf))
      (unless (memq imenu-create-index-function '(ilist-plus-java-ts-index ilist-plus-elisp-index))
        (user-error "Sort switching is only available for treesitter or elisp imenus"))
      (let ((choices (append '(("alphabetical" . alphabetical)
@@ -904,19 +1554,27 @@ Idempotent -- cheap enough to call on every marker refresh."
        (list (alist-get
 	      (completing-read "Choose: " choices)
 	      choices nil nil 'equal)))))
-  (with-current-buffer imenu-list--displayed-buffer
-    (setq-local ilist-plus-sort-strategy (unless (eq strategy 'position) strategy))
-    ;; mode line update to add the sort message.
-    (force-mode-line-update))
-  (imenu-list-refresh))
+  (let ((ibuf (ilist-plus--current-ibuf)))
+    (with-current-buffer (buffer-local-value 'ilist-plus--source ibuf)
+      (setq-local ilist-plus-sort-strategy (unless (eq strategy 'position) strategy))
+      ;; mode line update to add the sort message.
+      (force-mode-line-update))
+    (ilist-plus--refresh ibuf)))
 
-;; Let "s" in the *Ilist* buffer itself switch sort order
-(define-key imenu-list-major-mode-map (kbd "s") #'ilist-plus-switch-sort)
-
-;; Rebind hideshow's TAB to our own direct-overlay toggle, and "f" to
-;; toggle the whole tree between fully unfolded and the autofold depth.
-(define-key imenu-list-major-mode-map (kbd "TAB") #'ilist-plus-toggle-at-point)
-(define-key imenu-list-major-mode-map (kbd "f") #'ilist-plus-toggle-fold-all)
+(defun ilist-plus-cycle-sort (event)
+  "Switch the sort order of the Ilist clicked in EVENT to the next available one."
+  (interactive "e")
+  (with-current-buffer (window-buffer (posn-window (event-start event)))
+    (let* ((src ilist-plus--source)
+           (choices (with-current-buffer src
+                      (unless (memq imenu-create-index-function
+                                    '(ilist-plus-java-ts-index ilist-plus-elisp-index))
+                        (user-error "Sort switching is only available for treesitter or elisp imenus"))
+                      (append '(position alphabetical)
+                              (when (eq imenu-create-index-function 'ilist-plus-elisp-index)
+                                '(by-type)))))
+           (current (or (buffer-local-value 'ilist-plus-sort-strategy src) 'position)))
+      (ilist-plus-switch-sort (or (cadr (memq current choices)) (car choices))))))
 
 ;; Guard the java-ts indexer and its helpers the same way as the treesit
 ;; node-name helpers above: only defined when `treesit' is available.
@@ -1019,7 +1677,7 @@ Idempotent -- cheap enough to call on every marker refresh."
                '("Sections" "^;;;\\s-+\\(.*\\)$" 1))
 
   (add-to-list 'imenu-generic-expression
-               '("Subsections" "^;;;;\\s-+\\(.*\\)$" 1)))
+	       '("Subsections" "^;;;;\\s-+\\(.*\\)$" 1)))
 
 ;; fold `defun'/`use-package' entries under the ";;; Section" comment
 ;; header they're physically located under.
@@ -1061,7 +1719,7 @@ Idempotent -- cheap enough to call on every marker refresh."
         (beginning-of-line)
         (let ((start (point)))
           (while (and (> (point) floor-bol)
-                      (progn (forward-line -1)
+		      (progn (forward-line -1)
                              (and (> (point) floor-bol)
                                   (looking-at "^[ \t]*\\(;.*\\)?$"))))
             (setq start (point)))
@@ -1096,7 +1754,7 @@ Idempotent -- cheap enough to call on every marker refresh."
 (defun ilist-plus-elisp-parse-and-tag-ranges ()
   (let* ((raw (imenu--generic-function imenu-generic-expression))
          (leaves (sort (ilist-plus-elisp-flatten-raw raw)
-                       (lambda (a b) (< (cdr a) (cdr b)))))
+		       (lambda (a b) (< (cdr a) (cdr b)))))
          (buf (current-buffer))
          (table (make-hash-table :test 'eql))
          (floor (point-min))
@@ -1111,9 +1769,9 @@ Idempotent -- cheap enough to call on every marker refresh."
     (let ((ls leaves) (ss starts))
       (while ls
         (let* ((entry (car ls))
-               (key (let ((p (cdr entry))) (if (markerp p) (marker-position p) p)))
-               (beg (car ss))
-               (end (if (cdr ss) (cadr ss) (point-max))))
+	       (key (let ((p (cdr entry))) (if (markerp p) (marker-position p) p)))
+	       (beg (car ss))
+	       (end (if (cdr ss) (cadr ss) (point-max))))
           (puthash key (cons beg end) table))
         (setq ls (cdr ls) ss (cdr ss))))
     (setq-local ilist-plus--range-table table)
@@ -1182,13 +1840,13 @@ Idempotent -- cheap enough to call on every marker refresh."
   (let ((fns (gethash name fn-buckets))
         (pkgs (gethash name pkg-buckets)))
     (cons name (append (list (cons "" start))
-                       (when pkgs (list (cons "Use-package" pkgs)))
-                       (delq nil (mapcar (lambda (cb)
+		       (when pkgs (list (cons "Use-package" pkgs)))
+		       (delq nil (mapcar (lambda (cb)
                                            (let ((entries (gethash name (cdr cb))))
                                              (when entries (cons (car cb) entries))))
                                          category-buckets))
-                       fns
-                       children))))
+		       fns
+		       children))))
 
 ;; Custom imenu-create-index-function for emacs-lisp-mode, dispatching on
 ;; `ilist-plus-sort-strategy' between the header-nested view (the
@@ -1221,14 +1879,14 @@ Idempotent -- cheap enough to call on every marker refresh."
            ;; `sort' on a list is destructive so use `copy-sequence' gives the merge its own cells.
            (fine-ranges (ilist-plus-elisp-ranges
                          (sort (copy-sequence (append sections subsections))
-                               (lambda (left right) (< (cdr left) (cdr right))))))
+			       (lambda (left right) (< (cdr left) (cdr right))))))
            (fn-bucketed (ilist-plus-elisp-bucket-by-section functions fine-ranges))
            (pkg-bucketed (ilist-plus-elisp-bucket-by-section usepkg fine-ranges))
            ;; One (buckets . orphans) pair per other category, same shape
            ;; as PKG-BUCKETED.
            (category-bucketed
             (mapcar (lambda (cat)
-                      (cons (car cat) (ilist-plus-elisp-bucket-by-section (cdr cat) fine-ranges)))
+		      (cons (car cat) (ilist-plus-elisp-bucket-by-section (cdr cat) fine-ranges)))
                     categories))
            ;; ...but a Subsection's *parent* is decided against Sections
            ;; alone, since a Subsection always nests directly under the
@@ -1247,22 +1905,22 @@ Idempotent -- cheap enough to call on every marker refresh."
            (category-orphans (delq nil (mapcar (lambda (c)
                                                  (let ((orphans (cdr (cdr c))))
                                                    (when orphans (cons (car c) orphans))))
-                                               category-bucketed))))
+					       category-bucketed))))
       (append (ilist-plus-elisp-nest-under-code
-               (mapcar (lambda (range)
+	       (mapcar (lambda (range)
                          (ilist-plus-elisp-build-header
                           (car range) (nth 1 range) fn-buckets pkg-buckets category-buckets
                           (mapcar (lambda (sub)
                                     (ilist-plus-elisp-build-header
                                      (car sub) (cdr sub) fn-buckets pkg-buckets category-buckets))
                                   (gethash (car range) sub-buckets))))
-                       section-ranges))
-              (when pkg-orphans (list (cons "Use-package" pkg-orphans)))
-              category-orphans
-              (mapcar (lambda (sub)
+		       section-ranges))
+	      (when pkg-orphans (list (cons "Use-package" pkg-orphans)))
+	      category-orphans
+	      (mapcar (lambda (sub)
                         (ilist-plus-elisp-build-header (car sub) (cdr sub) fn-buckets pkg-buckets category-buckets))
-                      sub-orphans)
-              (cdr fn-bucketed)))))
+		      sub-orphans)
+	      (cdr fn-bucketed)))))
 
 ;; Flat by-type view: no header nesting at all -- every category
 ;; (Functions/Use-package/Variables/Types/...) becomes its own top-level
@@ -1280,40 +1938,13 @@ Idempotent -- cheap enough to call on every marker refresh."
             (t (push entry functions))))
     (setq categories (nreverse categories))
     (append (when functions
-              (list (cons "Functions"
+	      (list (cons "Functions"
                           (sort functions (lambda (left right) (< (cdr left) (cdr right)))))))
             (mapcar (lambda (cat)
-                      (cons (car cat)
+		      (cons (car cat)
                             (sort (copy-sequence (cdr cat))
                                   (lambda (left right) (< (cdr left) (cdr right))))))
                     categories))))
-
-;; `imenu-list--current-entry' deliberately skips subalist (container)
-;; entries when deciding which line to highlight, since a plain subalist
-;; cons has no position of its own. But `org-imenu-get-tree' still stamps
-;; each entry's *name* string with an `org-imenu-marker' text property
-;; pointing at that heading's own position, even for headings that end up
-;; container-only (i.e. any heading with a child heading, like "IMenu" in
-;; tour.org). Recover that so point-in-container also highlights the
-;; container's own line instead of falling back to the previous sibling.
-(defun ilist-plus--entry-position (entry)
-  "Return a comparable buffer position for ENTRY, or nil if none exists."
-  (if (imenu--subalist-p entry)
-      (get-text-property 0 'org-imenu-marker (car entry))
-    (funcall (imenu-list-position-translator)
-             (if (listp (cdr entry)) (cadr entry) (cdr entry)))))
-
-(defun ilist-plus--current-entry ()
-  "Like `imenu-list--current-entry', but also matches container entries
-that carry an `org-imenu-marker' text property on their name."
-  (let ((point-pos (point-marker))
-        (offset (point-min-marker))
-        match-entry)
-    (dolist (entry imenu-list--line-entries match-entry)
-      (let ((entry-pos (ilist-plus--entry-position entry)))
-        (when (and entry-pos (imenu-list-<= offset entry-pos point-pos))
-          (setq offset entry-pos)
-          (setq match-entry entry))))))
 
 ;;; VC Highlighting
 
@@ -1323,26 +1954,28 @@ that carry an `org-imenu-marker' text property on their name."
 ;; property).
 
 (defface ilist-plus-modified-face
-  `((t (:background ,(ilist-plus--modus-color 'bg-changed nil "yellow"))))
+  `((t (:inherit ilist-plus-face :background ,(ilist-plus--modus-color 'bg-changed nil "yellow"))))
   "Face for imenu-list entries covering a source section with a
 pending `diff-hl' change."
   :group 'ilist-plus)
 
+(defun ilist-plus--modus-apply-heading-colors ()
+  "Set header foreground colors to the Modus `fg-heading-(N+1)' colors."
+  (when (fboundp 'modus-themes-get-color-value)
+    (dotimes (n 4)
+      (set-face-attribute
+       (intern (format "ilist-plus-entry-face-%d" n)) nil
+       :foreground (modus-themes-get-color-value
+                    (intern (format "fg-heading-%d" (1+ n))) t)))))
+
 ;; Redefine the face when the theme changes.
 (defun ilist-plus--theme-change-setup (&rest _)
   (set-face-attribute 'ilist-plus-modified-face nil
-                       :background (ilist-plus--modus-color 'bg-changed nil "yellow")))
+		      :background (ilist-plus--modus-color 'bg-changed nil "yellow"))
+  (when-let* ((fg (ilist-plus--hl-foreground)))
+    (set-face-attribute 'ilist-plus-hl-face nil :foreground fg))
+  (ilist-plus--modus-apply-heading-colors))
 
-
-(defun ilist-plus--flatten-entries (index-alist depth)
-  "Flatten INDEX-ALIST into (ENTRY . DEPTH) pairs, in the order
-`imenu-list' displays them."
-  (apply #'nconc
-         (mapcar (lambda (entry)
-                   (cons (cons entry depth)
-                         (when (imenu--subalist-p entry)
-                           (ilist-plus--flatten-entries (cdr entry) (1+ depth)))))
-                 index-alist)))
 
 (defun ilist-plus--section-modified-p (start end buffer)
   "Return non-nil if BUFFER has a `diff-hl' hunk overlapping (START, END)."
@@ -1355,7 +1988,7 @@ pending `diff-hl' change."
           (setq ovs (cdr ovs)))
         found))))
 
-(defun ilist-plus--entry-range (entry buffer)
+(defun ilist-plus--entry-range (entry buffer &optional translator)
   "ENTRY's true (BEG . END) span, or nil if it has no position of its
 own or BUFFER's indexer doesn't tag ranges (see
 `ilist-plus--range-table', elisp-only via
@@ -1365,14 +1998,15 @@ distinct marker objects at the same buffer position are not `eql') in
 BUFFER's range table -- this works for the synthetic \"\" declaration leaf
 `ilist-plus-elisp-build-header' fabricates for a Section/Subsection header
 too, since that leaf's position is the same raw position the header's own
-leaf in RAW was keyed under when the table was built."
-  (let ((pos (ilist-plus--entry-position entry)))
+leaf in RAW was keyed under when the table was built.
+TRANSLATOR is as for `ilist-plus--entry-position'."
+  (let ((pos (ilist-plus--entry-position entry translator)))
     (when pos
       (let ((key (if (markerp pos) (marker-position pos) pos))
             (table (buffer-local-value 'ilist-plus--range-table buffer)))
         (and table (gethash key table))))))
 
-(defun ilist-plus--mark-modified (entries buffer index-table leaf-modified)
+(defun ilist-plus--mark-modified (entries buffer index-table leaf-modified &optional translator)
   "Mark LEAF-MODIFIED (via INDEX-TABLE, a hash table from entry to its
 index in the flattened, display-order list) for every leaf in ENTRIES --
 any nesting depth -- whose own `ilist-plus--entry-range' overlaps a
@@ -1382,125 +2016,91 @@ OR, no separate span check of its own). Ranges are computed once, up
 front, from true physical adjacency across every entry regardless of
 category (see `ilist-plus-elisp-parse-and-tag-ranges'), so they already
 partition the buffer without any gaps. Returns non-nil if anything in
-ENTRIES or their descendants got marked."
+ENTRIES or their descendants got marked.  TRANSLATOR is as for
+`ilist-plus--entry-position'."
   (let (any-modified)
     (dolist (entry entries)
       (let ((modified
              (if (imenu--subalist-p entry)
-                 (ilist-plus--mark-modified (cdr entry) buffer index-table leaf-modified)
-               (let ((range (ilist-plus--entry-range entry buffer)))
+                 (ilist-plus--mark-modified (cdr entry) buffer index-table leaf-modified translator)
+	       (let ((range (ilist-plus--entry-range entry buffer translator)))
                  (and range (ilist-plus--section-modified-p (car range) (cdr range) buffer))))))
         (when modified
           (aset leaf-modified (gethash entry index-table) t)
           (setq any-modified t))))
     any-modified))
 
-(defun ilist-plus-highlight-modified-entries ()
-  "Overlay `ilist-plus-modified-face' on *Ilist* lines covering a source
-section with a pending `diff-hl' change, via `ilist-plus--mark-modified'."
-  (let ((src-buf imenu-list--displayed-buffer))
+(defun ilist-plus-highlight-modified-entries (ibuf)
+  "Overlay `ilist-plus-modified-face' on the lines of the Ilist buffer
+IBUF covering a source section with a pending `diff-hl' change, via
+`ilist-plus--mark-modified'."
+  (let ((src-buf (buffer-local-value 'ilist-plus--source ibuf))
+        (entries (buffer-local-value 'ilist-plus--entries ibuf)))
     (when (buffer-live-p src-buf)
-      (let* ((flat (ilist-plus--flatten-entries imenu-list--imenu-entries 0))
-             (n (length flat))
+      (let* ((nodes (with-current-buffer ibuf (ilist-plus--nodes)))
+             (n (length nodes))
              (leaf-modified (make-vector n nil))
              (index-table (make-hash-table :test 'eq))
-             (i 0))
-        (dolist (pair flat)
-          (puthash (car pair) i index-table)
-          (setq i (1+ i)))
-        (ilist-plus--mark-modified imenu-list--imenu-entries src-buf index-table leaf-modified)
-        (with-current-buffer imenu-list-buffer-name
+             (translator (with-current-buffer src-buf (ilist-plus--position-translator))))
+        (dotimes (i n)
+          (puthash (ilist-plus--node-entry (aref nodes i)) i index-table))
+        (ilist-plus--mark-modified entries src-buf index-table leaf-modified translator)
+        (with-current-buffer ibuf
           (remove-overlays (point-min) (point-max) 'ilist-plus-modified t)
-          (let ((inhibit-read-only t))
-            (dotimes (i n)
+          (let ((starts (ilist-plus--line-starts))
+                (inhibit-read-only t))
+            (dotimes (i (min n (length starts)))
               (when (aref leaf-modified i)
-                (save-excursion
-                  (goto-char (point-min))
-                  (forward-line i)
-                  (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
-                    (overlay-put ov 'ilist-plus-modified t)
-                    (overlay-put ov 'face 'ilist-plus-modified-face)))))))))))
+                (let ((ov (make-overlay (aref starts i)
+                                        (save-excursion (goto-char (aref starts i))
+                                                        (line-end-position)))))
+                  (overlay-put ov 'ilist-plus-modified t)
+                  (overlay-put ov 'face 'ilist-plus-modified-face))))))))))
 
-
-;; We have to fold before highlighting.
-(defun ilist-plus--update-hook-setup ()
-  (ilist-plus-fold-below-depth-once)
-  (ilist-plus-highlight-modified-entries))
-
-;;; Org mode optimization. Its not completely clear if its needed.
-
-;; `imenu-list-collect-entries' unconditionally makes imenu rescan the
-;; whole buffer for headings every time `imenu-list-update' runs (driven by
-;; `imenu-list-idle-update-delay'), even when nothing has changed since the
-;; last scan. Skip that rescan for org buffers that haven't been modified
-;; since we last collected entries, and just keep reusing the previously
-;; generated tree.
-(defvar-local ilist-plus--last-tick nil
-  "`buffer-chars-modified-tick' as of the last `imenu-list-collect-entries' rescan.")
-
-(defun ilist-plus--skip-org-rescan-if-unmodified (orig-fn)
-  "Skip ORIG-FN's imenu rescan in org-mode buffers that are unmodified
-since the last rescan; reuse the existing `imenu--index-alist' instead."
-  (if (and (derived-mode-p 'org-mode)
-           imenu--index-alist
-           ilist-plus--last-tick
-           (= ilist-plus--last-tick (buffer-chars-modified-tick)))
-      (setq imenu-list--imenu-entries imenu--index-alist
-            imenu-list--displayed-buffer (current-buffer))
-    (funcall orig-fn)
-    (setq ilist-plus--last-tick (buffer-chars-modified-tick))))
 
 ;;; Global minor mode
 
-;; Everything ilist-plus installs -- advice on `imenu-list' functions,
-;; hooks on `imenu-list-major-mode-hook'/`emacs-lisp-mode-hook'/
-;; `enable-theme-functions'/`imenu-list-update-hook', and the
-;; mode-line format -- is inherently global (there's no meaningful
-;; per-buffer version of advice on a shared function), so this is a
-;; `:global' minor mode rather than a buffer-local one.
+;; Everything the mode installs -- hooks on `emacs-lisp-mode-hook'/`enable-theme-functions', the
+;; mode-line format and the `imenu-list-smart-toggle' redirection -- is inherently global, so this
+;; is a `:global' minor mode rather than a buffer-local one.  `ilist-plus-toggle' requires it.
 
-(defvar ilist-plus-mode--saved-mode-line-format nil
-  "`imenu-list-mode-line-format' as it was before `ilist-plus-mode' set its own.")
+(defvar ilist-plus-mode--saved-mode-line-format 'unsaved
+  "`imenu-list-mode-line-format' as it was before `ilist-plus-mode' set its own.
+The symbol `unsaved' when it was not touched.")
 
 (defun ilist-plus-mode--enable ()
-  (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
-  (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format))
-  (add-hook 'imenu-list-major-mode-hook #'ilist-plus--major-mode-setup)
-  ;; hideshow's own activation is not wanted -- we fold via our own overlays instead.
-  (remove-hook 'imenu-list-major-mode-hook #'hs-minor-mode)
+  (ilist-plus--modus-apply-heading-colors)
+  (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format)
+             (eq ilist-plus-mode--saved-mode-line-format 'unsaved))
+    (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
+    (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format)))
   (add-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
+  ;; The hook only fires for buffers created from now on; the mode is often enabled lazily, so
+  ;; give already-open elisp buffers the Sections/Use-package entries the hierarchy needs.
+  (dolist (buf (buffer-list))
+    (with-current-buffer buf
+      (when (derived-mode-p 'emacs-lisp-mode)
+        (ilist-plus--elisp-mode-setup))))
   (add-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
-  (add-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
-  ;; Appended so this runs *after* `ilist-plus--update-hook-setup' above --
-  ;; see `ilist-plus-reveal-current-entry'.
-  (add-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry t)
-  (advice-add 'imenu-list-smart-toggle :before #'ilist-plus-after-imenu-list-toggle)
-  (advice-add 'imenu-list--current-entry :override #'ilist-plus--current-entry)
-  (advice-add 'imenu-list-collect-entries :around #'ilist-plus--skip-org-rescan-if-unmodified)
-  (advice-add 'imenu-list-insert-entries :around #'ilist-plus--insert-entries-advice))
+  (add-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
+  (add-hook 'after-make-frame-functions #'ilist-plus--drop-duplicate-frame-id)
+  ;; Keeps existing `imenu-list-smart-toggle' key bindings working if in compat mode
+  (when ilist-plus-imenu-list-compat
+    (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle)))
 
 (defun ilist-plus-mode--disable ()
-  (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format)
-  (remove-hook 'imenu-list-major-mode-hook #'ilist-plus--major-mode-setup)
-  (add-hook 'imenu-list-major-mode-hook #'hs-minor-mode)
+  (unless (eq ilist-plus-mode--saved-mode-line-format 'unsaved)
+    (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format
+          ilist-plus-mode--saved-mode-line-format 'unsaved))
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
-  (remove-hook 'imenu-list-update-hook #'ilist-plus--update-hook-setup)
-  (remove-hook 'imenu-list-update-hook #'ilist-plus-reveal-current-entry)
-  (advice-remove 'imenu-list-smart-toggle #'ilist-plus-after-imenu-list-toggle)
-  (advice-remove 'imenu-list--current-entry #'ilist-plus--current-entry)
-  (advice-remove 'imenu-list-collect-entries #'ilist-plus--skip-org-rescan-if-unmodified)
-  (advice-remove 'imenu-list-insert-entries #'ilist-plus--insert-entries-advice))
+  (remove-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
+  (remove-hook 'after-make-frame-functions #'ilist-plus--drop-duplicate-frame-id)
+  (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle))
 
 ;;;###autoload
 (define-minor-mode ilist-plus-mode
-  "Toggle ilist-plus's imenu-list UI and elisp/org indexing extensions.
-
-Enabling this installs ilist-plus's mode-line format for the
-*Ilist* window, its folding/highlight/VC hooks on `imenu-list',
-its extra `imenu-generic-expression' entries for `emacs-lisp-mode',
-and its advice on `imenu-list' entry-tracking and collection
-functions. Disabling it removes all of the above again."
+  "Toggle ilist-plus's UI and elisp/org indexing extensions."
   :global t
   :group 'ilist-plus
   (if ilist-plus-mode
