@@ -95,7 +95,7 @@
 ;;             	      (setq-local ilist-plus-autofold-depth 2)
 ;;                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ;; ```
-;; 4. Turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
+;; 4. Enable `ilist-plus-mode`, then turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
 ;;    `*IListPlus[N]*`, that tracks, folds and toggles independently of the other frames.
 ;;
 ;; ## Customization
@@ -150,6 +150,8 @@
 (declare-function window--display-buffer window.el)
 
 (defvar imenu--index-alist)
+(defvar ilist-plus-mode)
+(defvar imenu-list-mode-line-format)
 (defvar ilist-plus-sort-strategy)
 
 ;;; General UI changes
@@ -231,7 +233,7 @@ Nil means imenu positions are used as they are."
   :group 'ilist-plus)
 
 (defvar ilist-plus-mode-line-format nil
-  "Mode-line format of the Ilist buffers, set by `ilist-plus-mode'.")
+  "Mode-line format of the Ilist buffers. nil means build the default one.")
 
 (defun ilist-plus--opt (name)
   "The value of option NAME (a symbol such as `size').
@@ -450,19 +452,13 @@ Default to the current frame if FRAME isn't supplied."
   (propertize "󰉹" 'face 'ilist-plus-icon-face))
 
 (defun ilist-plus-mode-line-sort ()
-  "The clickable \"[sort]\" indicator of the current Ilist buffer."
-  (propertize (format "[%s]" (ilist-plus-current-sort ilist-plus--source))
-              'help-echo "mouse-1: switch the sort order"
-              'mouse-face 'ilist-plus-mode-line-highlight
-              'local-map ilist-plus-sort-map))
-
-(defun ilist-plus-mode-line-label ()
-  "Icon, source buffer name and sort indicator of the current Ilist buffer.
+  "The clickable \"[sort]\" indicator of the current Ilist buffer.
 Nil when the source buffer is gone."
   (when (buffer-live-p ilist-plus--source)
-    (concat (ilist-plus-mode-line-icon) " "
-            (propertize (buffer-name ilist-plus--source) 'face 'mode-line-buffer-id)
-            "  " (ilist-plus-mode-line-sort))))
+    (propertize (format "[%s]" (ilist-plus-current-sort ilist-plus--source))
+		'help-echo "mouse-1: switch the sort order"
+		'mouse-face 'ilist-plus-mode-line-highlight
+		'local-map ilist-plus-sort-map)))
 
 (defun ilist-plus--build-mode-line-format (&optional key-map)
   "Build the Ilist mode-line format, with KEY-MAP on all but the sort indicator."
@@ -1395,12 +1391,15 @@ FORCE will always do an update even if nothing has changed."
 
 ;;;###autoload
 (defun ilist-plus-toggle ()
-  "Show or hide the Ilist of the selected frame, leaving other frames' alone."
+  "Show or hide the Ilist of the selected frame, leaving other frames' alone.
+Does nothing but print an error unless `ilist-plus-mode' is enabled."
   (interactive)
-  (let ((ibuf (ilist-plus--buffer)))
-    (if (and ibuf (get-buffer-window ibuf))
-        (ilist-plus--close)
-      (ilist-plus--open))))
+  (if (not ilist-plus-mode)
+      (message "ilist-plus-toggle: enable `ilist-plus-mode' first")
+    (let ((ibuf (ilist-plus--buffer)))
+      (if (and ibuf (get-buffer-window ibuf))
+          (ilist-plus--close)
+        (ilist-plus--open)))))
 
 (defun ilist-plus-quit-window ()
   "Hide this Ilist's window."
@@ -2063,15 +2062,16 @@ IBUF covering a source section with a pending `diff-hl' change, via
 
 ;; Everything the mode installs -- hooks on `emacs-lisp-mode-hook'/`enable-theme-functions', the
 ;; mode-line format and the `imenu-list-smart-toggle' redirection -- is inherently global, so this
-;; is a `:global' minor mode rather than a buffer-local one.  The Ilist itself (`ilist-plus-toggle')
-;; works without it.
+;; is a `:global' minor mode rather than a buffer-local one.  `ilist-plus-toggle' requires it.
 
-(defvar ilist-plus-mode--saved-mode-line-format nil
-  "`imenu-list-mode-line-format' as it was before `ilist-plus-mode' set its own.")
+(defvar ilist-plus-mode--saved-mode-line-format 'unsaved
+  "`imenu-list-mode-line-format' as it was before `ilist-plus-mode' set its own.
+The symbol `unsaved' when it was not touched.")
 
 (defun ilist-plus-mode--enable ()
   (ilist-plus--modus-apply-heading-colors)
-  (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format))
+  (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format)
+             (eq ilist-plus-mode--saved-mode-line-format 'unsaved))
     (setq ilist-plus-mode--saved-mode-line-format imenu-list-mode-line-format)
     (setq imenu-list-mode-line-format (ilist-plus--build-mode-line-format)))
   (add-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
@@ -2089,14 +2089,14 @@ IBUF covering a source section with a pending `diff-hl' change, via
     (advice-add 'imenu-list-smart-toggle :override #'ilist-plus-toggle)))
 
 (defun ilist-plus-mode--disable ()
-  (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format))
-    (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format))
+  (unless (eq ilist-plus-mode--saved-mode-line-format 'unsaved)
+    (setq imenu-list-mode-line-format ilist-plus-mode--saved-mode-line-format
+          ilist-plus-mode--saved-mode-line-format 'unsaved))
   (remove-hook 'emacs-lisp-mode-hook #'ilist-plus--elisp-mode-setup)
   (remove-hook 'enable-theme-functions #'ilist-plus--theme-change-setup)
   (remove-hook 'delete-frame-functions #'ilist-plus--frame-deleted)
   (remove-hook 'after-make-frame-functions #'ilist-plus--drop-duplicate-frame-id)
-  (when ilist-plus-imenu-list-compat
-    (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle)))
+  (advice-remove 'imenu-list-smart-toggle #'ilist-plus-toggle))
 
 ;;;###autoload
 (define-minor-mode ilist-plus-mode

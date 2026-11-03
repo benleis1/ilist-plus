@@ -840,6 +840,33 @@ name of the synthetic declaration leaf it fabricates for every header
           (should-not (memq #'ilist-plus--drop-duplicate-frame-id after-make-frame-functions)))
       (ilist-plus-mode -1))))
 
+(ert-deftest ilist-plus-test-toggle-without-mode-messages-and-noops ()
+  (let ((ilist-plus-mode nil)
+        (ilist-plus-focus-after-activation nil)
+        (before (ilist-plus--buffers))
+        msg)
+    (cl-letf (((symbol-function 'message)
+               (lambda (fmt &rest args) (setq msg (apply #'format fmt args)))))
+      (ilist-plus-toggle))
+    (should (string-match-p "ilist-plus-mode" msg))
+    (should (equal before (ilist-plus--buffers)))))
+
+(ert-deftest ilist-plus-test-mode-disable-removes-advice-after-compat-change ()
+  (let ((ilist-plus-mode nil)
+        (ilist-plus-imenu-list-compat t))
+    (unwind-protect
+        (progn
+          (ilist-plus-mode 1)
+          (setq ilist-plus-imenu-list-compat nil)
+          (ilist-plus-mode -1)
+          (should-not (advice-member-p #'ilist-plus-toggle 'imenu-list-smart-toggle)))
+      (ilist-plus-mode -1))))
+
+(ert-deftest ilist-plus-test-mode-line-sort-nil-without-live-source ()
+  (with-temp-buffer
+    (setq ilist-plus--source nil)
+    (should-not (ilist-plus-mode-line-sort))))
+
 (ert-deftest ilist-plus-test-two-frames-toggle-and-view-independently ()
   (let ((ilist-plus-focus-after-activation nil)
         (f1 (selected-frame))
@@ -849,6 +876,7 @@ name of the synthetic declaration leaf it fabricates for every header
     (skip-unless f2)
     (unwind-protect
         (progn
+          (ilist-plus-mode 1)
           (with-current-buffer a
             (emacs-lisp-mode)
             (insert "(defun frame-a-one () 1)\n(defun frame-a-two () 2)\n"))
@@ -909,6 +937,7 @@ name of the synthetic declaration leaf it fabricates for every header
           (quit-windows-on ibuf nil t))
         (kill-buffer ibuf))
       (ilist-plus--stop-timer)
+      (ilist-plus-mode -1)
       (kill-buffer a)
       (kill-buffer b))))
 

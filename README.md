@@ -95,7 +95,7 @@ deep you are without extra effort.
             	      (setq-local ilist-plus-autofold-depth 2)
                    (setq-local imenu-create-index-function 'ilist-plus-elisp-index)))
 ```
-4. Turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
+4. Enable `ilist-plus-mode`, then turn on the side window by calling `ilist-plus-toggle`. Every frame has its own outline buffer,
    `*IListPlus[N]*`, that tracks, folds and toggles independently of the other frames.
 
 ## Customization
