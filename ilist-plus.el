@@ -160,7 +160,7 @@
 
 ;;; Options
 
-;; Because this package originally extended imenu-list and now has decoupled provide a compat layer
+;; Because this package originally extended imenu-list and now has decoupled, provide a compat layer
 ;; for migration.
 (defcustom ilist-plus-imenu-list-compat nil
   "Whether ilist-plus honors an existing `imenu-list' configuration.
@@ -185,7 +185,7 @@ variable whenever that variable is bound, in preference to the
   :type 'number
   :group 'ilist-plus)
 
-(defcustom ilist-plus-focus-after-activation t
+(defcustom ilist-plus-focus-after-activation nil
   "Non-nil to select the Ilist window when it is opened."
   :type 'boolean
   :group 'ilist-plus)
@@ -1001,10 +1001,10 @@ BEG and END track where the current folded region is located."
 
 (defun ilist-plus-fold-children (&optional depth)
   "Fold the entries DEPTH levels below the entry at point.
-DEPTH defaults to 1, the entry's direct children.  Folding a child hides
+DEPTH defaults to 1, the entry's direct children. Folding a child hides
   its content, so the grandchildren disappear while the children stay
-  visible, just collapsed.  Any manual toggles within the subtree are
-  discarded and the rest of the tree is left untouched.  The subtree is
+  visible, just collapsed. Any manual toggles within the subtree are
+  discarded and the rest of the tree is left untouched. The subtree is
   always reset to a fully shown state before it is refolded."
   (interactive)
   (let ((depth (or depth 1)))
@@ -1329,7 +1329,7 @@ The outline is built from SOURCE, or by default from the buffer shown in
 ;;; Display and toggle
 
 (defun ilist-plus--display-action ()
-  "The `display-buffer' action that shows Ilist in a full-size window on the frame edge."
+  "The `display-buffer' action that shows Ilist in a window on the left frame edge."
   (let* ((position (ilist-plus--opt 'position))
          (horizontal (memq position '(left right)))
          (size (ilist-plus--opt 'size))
@@ -1426,29 +1426,32 @@ Does nothing but print an error unless `ilist-plus-mode' is enabled."
 ;; Generate a marker for the given node
 ;; This can only be done while in the buffer
 (defun ilist-plus-make-marker (buffer point)
+  "Make a marker at the given POINT in the BUFFER."
   (with-current-buffer buffer
     (copy-marker point)))
 
 ;; treesit is built in post version 29.
 (require 'treesit)
 
-;; Treesitter node name function for most node types
 (defun ilist-plus-get-def-name (node)
+  "Return the treesitter NODE name."
   (treesit-node-text
    (treesit-node-child-by-field-name node "name") t))
 
-;; Treesitter node name function for class fields
 (defun ilist-plus-get-field-name (node)
+  "Treesitter NODE name function for class fields."
   (treesit-node-text
    (treesit-node-child-by-field-name (treesit-node-child-by-field-name node "declarator") "name") t))
 
-;; Simple wrapper to make an imenu leaf from a treesitter node
 (defun ilist-plus-leaf (node buffer name-func)
+  "Simple wrapper to make an imenu leaf from a treesitter NODE.
+BUFFER supplies the buffer the node is from and NAME-FUNC is a mapping
+functor like `ilist-plus-get-field-name'."
   (cons (funcall name-func node)
         (ilist-plus-make-marker buffer (treesit-node-start node))))
 
-;; Compare two imenu nodes
 (defun ilist-plus-compare (left right)
+  "Compare two imenu nodes LEFT and RIGHT."
   (string-lessp (car left) (car right)))
 
 ;; Buffer-local sort/grouping strategy, set via `ilist-plus-switch-sort' and
@@ -2024,7 +2027,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
           (let ((starts (ilist-plus--line-starts))
                 (inhibit-read-only t))
             (dotimes (i (min n (length starts)))
-              (when (aref leaf-modified i)
+	      (when (aref leaf-modified i)
                 (let ((ov (make-overlay (aref starts i)
                                         (save-excursion (goto-char (aref starts i))
                                                         (line-end-position)))))
