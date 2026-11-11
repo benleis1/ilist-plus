@@ -1,4 +1,4 @@
-;;; ilist-plus.el --- Extended imenu ilist support -*- lexical-binding: t; -*-
+;;; ilist-plus.el --- Rich Emacs outline sidebar driven off of imenu -*- lexical-binding: t; -*-
 
 ;;; Commentary:
 
@@ -30,13 +30,13 @@
 
 ;; **BETA release**
 
-;; This package inspired by Emac's imenu-list provides a richer outline sidebar.
-;; It adds hierarchical folding, sorting, Git modification indicators, improved styling and better
-;; indexing for elisp, org and treesitter java. If you use imenu-list to navigate large files,
-;; ilist-plus make the outline substantially more informative and interactive. Stock imenu-list
-;; gives you a flat, ordered by position index; these extensions turn it into a more dynamic outline
-;; by leveraging hierarchy and folding strategies, so the side window tracks where you are and how
-;; deep you are without extra effort.
+;; This package inspired by Emac's imenu-list provides a richer outline sidebar. It adds
+;; hierarchical folding, sorting, Git modification indicators, improved styling and better indexing
+;; for elisp, org and treesitter java. For navigating large files, ilist-plus make the outline
+;; substantially more informative and interactive. Stock imenu-list gives you a flat, ordered by
+;; position index; this package turns it into a more dynamic outline by leveraging hierarchy and
+;; folding strategies, so the side window tracks where you are and how deep you are without extra
+;; effort.
 
 ;; ## Samples
 ;; ![Before - with just imenu-ilist](./before.png)
@@ -459,6 +459,14 @@ Nil when the source buffer is gone."
 		'help-echo "mouse-1: switch the sort order"
 		'mouse-face 'ilist-plus-mode-line-highlight
 		'local-map ilist-plus-sort-map)))
+
+(defun ilist-plus-mode-line-label ()
+  "Icon, source buffer name and sort indicator of the current Ilist buffer.
+Nil when the source buffer is gone."
+  (when (buffer-live-p ilist-plus--source)
+    (concat (ilist-plus-mode-line-icon) " "
+            (propertize (buffer-name ilist-plus--source) 'face 'mode-line-buffer-id)
+            "  " (ilist-plus-mode-line-sort))))
 
 (defun ilist-plus--build-mode-line-format (&optional key-map)
   "Build the Ilist mode-line format, with KEY-MAP on all but the sort indicator."
@@ -901,10 +909,7 @@ Used by the fold commands to make a targeted, incremental edit to the
    (lambda (paths) (if (member path paths) paths (cons path paths)))))
 
 (defun ilist-plus--unfold-path (path)
-  "Remove PATH, and any of its descendant paths, from the saved
-  snapshot -- unfolding a container also discards (removes the fold
-							   overlays of) everything nested under it, so their paths shouldn't be
-  restored as folded either."
+  "Remove PATH and any of its descendant paths from the saved folded paths."
   (ilist-plus--update-folded-paths
    (lambda (paths) (ilist-plus--remove-paths-with-prefix path paths))))
 
@@ -946,22 +951,29 @@ even if entries shifted lines."
                    (span (ilist-plus--line-span n i end-i)))
               (ilist-plus--hide-region (car span) (cdr span)))))))))
 
-(defun ilist-plus-fold-below-depth-once (ilist &optional depth)
-  "The first time a buffer is shown in the Ilist buffer ILIST, apply the
-  default depth-based fold; every time after, restore that buffer's own
-  saved fold snapshot instead (see `ilist-plus--folded-paths'), then
-  refresh fold markers. This runs with the *source* buffer as current, not
-  ILIST -- so `ilist-plus--folded-once' and `ilist-plus--folded-paths' are
-  read and written explicitly via ILIST's `ilist-plus--source' rather than
-  relying on whatever happens to be current."
+(defun ilist-plus--fold-initially (ilist depth)
+  "Do the one time initial fold of ILIST down to DEPTH.
+DEPTH nil means the default depth-based limit.  Marks the source buffer
+as folded so later calls to `ilist-plus--sync-folds' restore instead."
+  (let ((src (buffer-local-value 'ilist-plus--source ilist)))
+    (with-current-buffer ilist
+      (ilist-plus-fold-below-depth depth ilist))
+    (with-current-buffer src
+      (setq ilist-plus--folded-once t))))
+
+(defun ilist-plus--sync-folds (ilist &optional depth)
+  "Bring the folds of the Ilist buffer ILIST in line with its source buffer.
+The first time the source buffer is shown, fold to DEPTH or the default
+depth-based limit.  On every later rebuild, reapply the saved folded
+paths instead.  Either way, re-record the folded paths and refresh the
+fold markers."
   (let ((src (buffer-local-value 'ilist-plus--source ilist)))
     (when (and ilist (buffer-live-p src))
-      (with-current-buffer ilist
-        (if (buffer-local-value 'ilist-plus--folded-once src)
+      (if (buffer-local-value 'ilist-plus--folded-once src)
+          (with-current-buffer ilist
             (ilist-plus--restore-folded-paths
-             (buffer-local-value 'ilist-plus--folded-paths src))
-          (ilist-plus-fold-below-depth depth ilist)
-          (with-current-buffer src (setq ilist-plus--folded-once t))))
+             (buffer-local-value 'ilist-plus--folded-paths src)))
+        (ilist-plus--fold-initially ilist depth))
       (ilist-plus--record-folded-paths ilist)
       (ilist-plus-update-fold-markers ilist))))
 
@@ -1065,7 +1077,7 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
 ;; `ilist-plus--insert-entries' erases and rebuilds the whole Ilist buffer
 ;; whenever the source buffer's imenu entries actually change (e.g. a real
 ;; edit triggers a reindex, or the displayed buffer changed). That wipes
-;; our fold overlays but `ilist-plus-fold-below-depth-once' (run from
+;; our fold overlays but `ilist-plus--sync-folds' (run from
 ;; `ilist-plus--update-inner' right after every update) recreates them
 ;; from `ilist-plus--folded-paths', so nothing extra is needed here.
 
@@ -1282,7 +1294,7 @@ FORCE will always do an update even if nothing has changed."
         (when (ilist-plus--opt 'auto-resize)
           (ilist-plus--resize-window ibuf))
         ;; We have to fold before highlighting.
-        (ilist-plus-fold-below-depth-once ibuf)
+        (ilist-plus--sync-folds ibuf)
         (ilist-plus-highlight-modified-entries ibuf)
         (ilist-plus--run-hooks 'update-hook)
         (ilist-plus-reveal-current-entry ibuf)

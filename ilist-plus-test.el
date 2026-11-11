@@ -210,7 +210,7 @@ name of the synthetic declaration leaf it fabricates for every header
                                     (overlays-in (point-min) (point-max)))))))))
       (kill-buffer src))))
 
-(ert-deftest ilist-plus-test-fold-below-depth-once-dispatches-on-folded-flag ()
+(ert-deftest ilist-plus-test-sync-folds-dispatches-on-folded-flag ()
   (let ((src (generate-new-buffer "ilist-plus-test-src2")))
     (unwind-protect
         (progn
@@ -219,7 +219,7 @@ name of the synthetic declaration leaf it fabricates for every header
             (setq-local ilist-plus--folded-paths nil))
           (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
                                                ilist-plus-test--tree-nested src)
-          (ilist-plus-fold-below-depth-once (get-buffer ilist-plus-test--ibuf) 2)
+          (ilist-plus--sync-folds (get-buffer ilist-plus-test--ibuf) 2)
           (should (buffer-local-value 'ilist-plus--folded-once src))
           (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "GC1"))
@@ -231,7 +231,7 @@ name of the synthetic declaration leaf it fabricates for every header
             (setq-local ilist-plus--folded-paths '(("Root"))))
           (ilist-plus-test--reset-ilist-buffer "Root\n  Child1\n    GC1\n    GC2\n  Child2\n"
                                                ilist-plus-test--tree-nested src)
-          (ilist-plus-fold-below-depth-once (get-buffer ilist-plus-test--ibuf) 2)
+          (ilist-plus--sync-folds (get-buffer ilist-plus-test--ibuf) 2)
           (with-current-buffer ilist-plus-test--ibuf
             (ilist-plus-test--goto-line (ilist-plus-test--line-of ilist-plus-test--tree-nested "Child1"))
             (should (ilist-plus--folded-p (point)))
