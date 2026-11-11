@@ -147,7 +147,6 @@
 (declare-function imenu--generic-function imenu.el)
 (declare-function eglot--lsp-position-to-point "eglot")
 (declare-function eglot-managed-p "eglot")
-(declare-function window--display-buffer window.el)
 
 (defvar imenu--index-alist)
 (defvar ilist-plus-mode)
@@ -1116,7 +1115,7 @@ If anything in the tree is currently folded, unfolds everything;
 
 (defun ilist-plus--collect-entries (ibuf &optional force)
   "Index the current buffer into IBUF, the Ilist buffer to show it in.
-  Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
+Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
   Signals `imenu-unavailable' when the buffer has no index."
   (unless (and (not force)
                imenu--index-alist
@@ -1171,7 +1170,7 @@ If anything in the tree is currently folded, unfolds everything;
 ;; the container's own line instead of falling back to the previous sibling.
 (defun ilist-plus--entry-position (entry &optional translator)
   "Return a comparable buffer position for ENTRY, or nil if none exists.
-  TRANSLATOR is `ilist-plus--position-translator''s value for the source
+TRANSLATOR is `ilist-plus--position-translator''s value for the source
   buffer; pass it when looking up many entries so it is only made once."
   (if (imenu--subalist-p entry)
       (get-text-property 0 'org-imenu-marker (car entry))
@@ -1267,7 +1266,7 @@ FORCE will always do an update even if nothing has changed."
 
 (defun ilist-plus-update (&optional force frame source)
   "Update FRAME's (default: the selected frame's) Ilist buffer.
-  The outline is built from SOURCE, or by default from the buffer shown in
+The outline is built from SOURCE, or by default from the buffer shown in
   FRAME's selected window; nothing happens when that is an Ilist buffer
   itself.  Unless FORCE is non-nil, nothing happens either when point
   hasn't moved since the last update."
@@ -1305,11 +1304,13 @@ FORCE will always do an update even if nothing has changed."
 (defvar ilist-plus--timer nil)
 
 (defun ilist-plus--stop-timer ()
+  "Stop the global update timer."
   (when ilist-plus--timer
     (cancel-timer ilist-plus--timer)
     (setq ilist-plus--timer nil)))
 
 (defun ilist-plus--update-all ()
+  "Refresh all the ilistplus buffers per frame."
   (let (any)
     (dolist (ibuf (ilist-plus--buffers))
       (let ((frame (buffer-local-value 'ilist-plus--frame ibuf)))
@@ -1320,30 +1321,26 @@ FORCE will always do an update even if nothing has changed."
       (ilist-plus--stop-timer))))
 
 (defun ilist-plus--start-timer ()
+  "Start the global update timer."
   (when (and (ilist-plus--opt 'auto-update) (not ilist-plus--timer))
     (setq ilist-plus--timer
           (run-with-idle-timer (ilist-plus--opt 'idle-update-delay) t #'ilist-plus--update-all))))
 
 ;;; Display and toggle
 
-(defun ilist-plus--split-size ()
-  "The size argument for `split-window' from `ilist-plus-size'."
-  (let ((size (ilist-plus--opt 'size))
-        (frame-size (if (memq (ilist-plus--opt 'position) '(left right))
-                        (frame-width)
-                      (frame-height))))
-    (if (integerp size)
-        (- size)
-      (- (round (* frame-size size))))))
-
-(defun ilist-plus--display-buffer (buffer alist)
-  "`display-buffer' action showing BUFFER in a side window of the selected frame."
-  (or (get-buffer-window buffer)
-      (let ((window (split-window (frame-root-window) (ilist-plus--split-size)
-                                  (ilist-plus--opt 'position))))
-        (window--display-buffer buffer window 'window alist)
-        (set-window-dedicated-p window t)
-        window)))
+(defun ilist-plus--display-action ()
+  "The `display-buffer' action that shows Ilist in a full-size window on the frame edge."
+  (let* ((position (ilist-plus--opt 'position))
+         (horizontal (memq position '(left right)))
+         (size (ilist-plus--opt 'size))
+         (cells (if (integerp size)
+                    size
+                  (round (* (if horizontal (frame-width) (frame-height)) size)))))
+    `((display-buffer-reuse-window display-buffer-in-direction)
+      (direction . ,position)
+      (window . root)
+      (,(if horizontal 'window-width 'window-height) . ,cells)
+      (dedicated . t))))
 
 (defun ilist-plus--open ()
   "Show the selected frame's Ilist, built from the current buffer."
@@ -1352,8 +1349,8 @@ FORCE will always do an update even if nothing has changed."
     (ilist-plus-reset-fold-state (ilist-plus--live-sources))
     (ilist-plus--start-timer)
     (if (ilist-plus--opt 'focus-after-activation)
-        (pop-to-buffer ibuf '(ilist-plus--display-buffer))
-      (display-buffer ibuf '(ilist-plus--display-buffer)))
+        (pop-to-buffer ibuf (ilist-plus--display-action))
+      (display-buffer ibuf (ilist-plus--display-action)))
     (ilist-plus-update t (selected-frame) source)))
 
 (defun ilist-plus--close (&optional frame)
