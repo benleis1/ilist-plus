@@ -662,6 +662,14 @@ when they exist, so their customizations carry over."
   (goto-char (ilist-plus--button-position button))
   (ilist-plus-toggle-at-point))
 
+;; I want tab to fold/unfold rather than move to the next entry.
+(defvar ilist-plus-button-keymap
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map button-map)
+    (define-key map (kbd "TAB") #'ilist-plus-toggle-at-point)
+    map)
+  "TAB toggles folding instead of navigating between buttons.")
+
 (defun ilist-plus--depth-string (depth)
   "Indentation prefix for an entry at DEPTH in the `classic' style."
   (if (> depth 0) (concat (make-string (* 2 depth) ?\s) " ") ""))
@@ -676,11 +684,13 @@ when they exist, so their customizations carry over."
                        'face (ilist-plus--get-face depth t)
                        'help-echo (format "Toggle: %s" (car entry))
                        'follow-link t
+                       'keymap ilist-plus-button-keymap
                        'action #'ilist-plus--action-toggle)
       (insert-button (format "%s" (car entry))
                      'face (ilist-plus--get-face depth nil)
                      'help-echo (format "Go to: %s" (car entry))
                      'follow-link t
+                     'keymap ilist-plus-button-keymap
                      'action #'ilist-plus--action-goto-entry))
     (insert "\n")))
 
@@ -708,6 +718,7 @@ likewise unclickable."
                          'face (ilist-plus--get-face depth t)
                          'help-echo (format "Toggle: %s" (car entry))
                          'follow-link t
+                         'keymap ilist-plus-button-keymap
                          'action #'ilist-plus--action-toggle)
           (when (> (length connector) 0)
             (put-text-property btn-beg (+ btn-beg (length connector))
@@ -718,6 +729,7 @@ likewise unclickable."
                      'face (ilist-plus--get-face depth nil)
                      'help-echo (format "Go to: %s" (car entry))
                      'follow-link t
+                     'keymap ilist-plus-button-keymap
                      'action #'ilist-plus--action-goto-entry))
     (insert "\n")))
 
@@ -757,7 +769,6 @@ likewise unclickable."
 (defun ilist-plus-update-fold-markers (&optional buffer)
   "Update every foldable entry's marker in BUFFER."
   (with-current-buffer (or buffer (ilist-plus--current-ibuf))
-    (ilist-plus--rebind-buttons)
     (save-excursion
       (goto-char (point-min))
       (while (not (eobp))
@@ -978,20 +989,9 @@ fold markers."
       (ilist-plus-update-fold-markers ilist))))
 
 (defun ilist-plus--relocate-hidden-highlight (beg end)
-  "If the *Ilist* window's tracked highlight is currently sitting
-  inside BEG..END -- a span this command just folded -- move it back
-  to the line right before BEG (the container whose fold covered it,
-				    always left visible) and refresh `hl-line-highlight' there.
+  "Place the highlighted section in a visible portion of the buffer.
+BEG and END track where the current folded region is located."
 
-  Without this, folding a section that contains the entry currently
-  tracked from the *source* buffer leaves the highlight/window-point
-  stranded on a now-invisible line: `ilist-plus-reveal-current-entry'
-  (which would otherwise fix this up) only runs as part of
-  `imenu-list-update', and `imenu-list-update' skips its own work
-  whenever the *source* buffer's point hasn't moved since the last
-  update -- which it hasn't, since this fold was triggered by
-  interacting with the *Ilist* buffer directly, not by moving around
-  in the source buffer."
   (let ((window (ilist-plus--window (current-buffer))))
     (when window
       (let ((pos (window-point window)))
@@ -1003,10 +1003,10 @@ fold markers."
 (defun ilist-plus-fold-children (&optional depth)
   "Fold the entries DEPTH levels below the entry at point.
 DEPTH defaults to 1, the entry's direct children.  Folding a child hides
-its content, so the grandchildren disappear while the children stay
-visible, just collapsed.  Any manual toggles within the subtree are
-discarded and the rest of the tree is left untouched.  The subtree is
-always reset to a fully shown state before it is refolded."
+  its content, so the grandchildren disappear while the children stay
+  visible, just collapsed.  Any manual toggles within the subtree are
+  discarded and the rest of the tree is left untouched.  The subtree is
+  always reset to a fully shown state before it is refolded."
   (interactive)
   (let ((depth (or depth 1)))
     (with-current-buffer (ilist-plus--current-ibuf)
@@ -1059,10 +1059,9 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
   (ilist-plus-update-fold-markers))
 
 (defun ilist-plus-toggle-fold-all ()
-  "Toggle the whole *Ilist* buffer between fully unfolded and folded
-  down to `ilist-plus-autofold-depth'. Bound to \"f\": if anything in the
-  tree is currently folded, unfolds everything; otherwise refolds it
-  back down to the autofold depth."
+  "Toggle the whole *Ilist* buffer between fully unfolded and folded.
+If anything in the tree is currently folded, unfolds everything;
+  otherwise refolds it back down to the autofold depth."
   (interactive)
   (with-current-buffer (ilist-plus--current-ibuf)
     (if (ilist-plus--any-folded-p)
@@ -1072,40 +1071,6 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
       (ilist-plus-fold-below-depth)
       (ilist-plus--record-folded-paths (current-buffer))))
   (ilist-plus-update-fold-markers))
-
-
-;; `ilist-plus--insert-entries' erases and rebuilds the whole Ilist buffer
-;; whenever the source buffer's imenu entries actually change (e.g. a real
-;; edit triggers a reindex, or the displayed buffer changed). That wipes
-;; our fold overlays but `ilist-plus--sync-folds' (run from
-;; `ilist-plus--update-inner' right after every update) recreates them
-;; from `ilist-plus--folded-paths', so nothing extra is needed here.
-
-;; TAB is a separate, keyboard-only concern: `button-map' (which
-;; every button's `keymap' overlay property is `eq' to -- not a
-;; per-button copy) binds TAB to `forward-button', and overlay
-;; keymaps take priority over the buffer's local map, so
-;; give *Ilist*'s buttons their own child
-;; keymap (parented to `button-map', so RET/mouse-2 still work) with
-;; just TAB overridden, and swap each button's `keymap' to point at
-;; it. (No mouse bindings here -- clicking goes through the button's
-;; own `follow-link'+`action' above, not through this keymap.)
-(defvar ilist-plus-button-keymap
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map button-map)
-    (define-key map (kbd "TAB") #'ilist-plus-toggle-at-point)
-    map)
-  "Like `button-map', but TAB toggles the *Ilist* fold instead of
-  navigating between buttons.")
-
-(defun ilist-plus--rebind-buttons ()
-  "Point every button overlay in the *Ilist* buffer at
-  `ilist-plus-button-keymap' instead of the shared global `button-map'.
-  Idempotent -- cheap enough to call on every marker refresh."
-  (dolist (ov (overlays-in (point-min) (point-max)))
-    (when (and (overlay-get ov 'button)
-               (eq (overlay-get ov 'keymap) button-map))
-      (overlay-put ov 'keymap ilist-plus-button-keymap))))
 
 ;; Fold state is remembered per *source* buffer.  Reopening an Ilist starts every buffer over at the
 ;; default fold, except those still displayed by another frame's Ilist.
@@ -1151,8 +1116,8 @@ Replaces hideshow's `hs-toggle-hiding' (formerly bound to TAB and \"f\")."
 
 (defun ilist-plus--collect-entries (ibuf &optional force)
   "Index the current buffer into IBUF, the Ilist buffer to show it in.
-Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
-Signals `imenu-unavailable' when the buffer has no index."
+  Rescan imenu even if the buffer is unchanged when FORCE is non-nil.
+  Signals `imenu-unavailable' when the buffer has no index."
   (unless (and (not force)
                imenu--index-alist
                ilist-plus--last-tick
@@ -1206,8 +1171,8 @@ Signals `imenu-unavailable' when the buffer has no index."
 ;; the container's own line instead of falling back to the previous sibling.
 (defun ilist-plus--entry-position (entry &optional translator)
   "Return a comparable buffer position for ENTRY, or nil if none exists.
-TRANSLATOR is `ilist-plus--position-translator''s value for the source
-buffer; pass it when looking up many entries so it is only made once."
+  TRANSLATOR is `ilist-plus--position-translator''s value for the source
+  buffer; pass it when looking up many entries so it is only made once."
   (if (imenu--subalist-p entry)
       (get-text-property 0 'org-imenu-marker (car entry))
     (funcall (or translator (ilist-plus--position-translator))

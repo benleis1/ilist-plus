@@ -331,15 +331,14 @@ name of the synthetic declaration leaf it fabricates for every header
       (kill-buffer src)
       (kill-buffer ibuf))))
 
-(ert-deftest ilist-plus-test-rebind-buttons ()
-  (ilist-plus-test--reset-ilist-buffer "hello\n")
-  (with-current-buffer ilist-plus-test--ibuf
-    (let ((ov (make-button (point-min) (point-max))))
-      (should (eq (overlay-get ov 'keymap) button-map))
-      (ilist-plus--rebind-buttons)
-      (should (eq (overlay-get ov 'keymap) ilist-plus-button-keymap))
-      (ilist-plus--rebind-buttons)
-      (should (eq (overlay-get ov 'keymap) ilist-plus-button-keymap)))))
+(ert-deftest ilist-plus-test-buttons-use-button-keymap ()
+  (dolist (style '(classic straight curved))
+    (with-current-buffer (ilist-plus-test--render style)
+      (let ((buttons (seq-filter (lambda (ov) (overlay-get ov 'button))
+                                 (overlays-in (point-min) (point-max)))))
+        (should buttons)
+        (dolist (ov buttons)
+          (should (eq (overlay-get ov 'keymap) ilist-plus-button-keymap)))))))
 
 (ert-deftest ilist-plus-test-reset-fold-state ()
   (let ((b1 (generate-new-buffer "ilist-plus-test-b1"))
