@@ -1,4 +1,15 @@
-;;; ilist-plus.el --- Rich Emacs outline sidebar driven off of imenu -*- lexical-binding: t; -*-
+;;; ilist-plus.el --- Rich outline sidebar driven off of imenu -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Benjamin Leis
+
+;; SPDX-License-Identifier: MIT
+
+;; Author: Benjamin Leis <benleis1@gmail.com>
+;; Maintainer: Benjamin Leis <benleis1@gmail.com>
+;; Version: 0.0.4
+;; Package-Requires: ((emacs "29.1"))
+;; Keywords: convenience outlines tools
+;; URL: https://github.com/benleis1/ilist-plus
 
 ;;; Commentary:
 
@@ -11,22 +22,6 @@
 ;;  888   888   888  o.  )88b   888 .     88
 ;; o888o o888o o888o 8""888P'   "888"     88
 ;; ```
-
-;; Copyright (C) 2026 Benjamin Leis
-
-;; SPDX-License-Identifier: MIT
-
-;; Author:  Benjamin Leis <benleis1@gmail.com>
-
-;; Maintainer: Benjamin Leis <benleis1@gmail.com>
-
-;; Version: 0.0.3
-
-;; Package-Requires: ((emacs "29") (diff-hl "20260830.1400"))
-
-;; Keywords: convenience outlines tools
-
-;; URL: https://github.com/benleis1/ilist-plus
 
 ;; **BETA release**
 
@@ -69,7 +64,7 @@
 ;;    at defface time for ilist-plus-hl-face and ilist-plus-modified-face.
 ;; 2. Recommended: a fg-hl-imenu entry in modus-themes-common-palette-overrides — without it the
 ;;      highlight face has no foreground color.
-;; 3. diff-hl package + global-diff-hl-mode enabled, for the VC-modified highlighting to work
+;; 3. Optional: diff-hl package + global-diff-hl-mode enabled, for the VC-modified highlighting to work
 
 ;; ## Backwards Compatibility
 ;; * The lastest implementation no longer extends imenu-list and instead fully replaces it.
@@ -348,8 +343,7 @@ Default to the current frame if FRAME isn't supplied."
   "The window showing IBUF in any frame, or nil."
   (get-buffer-window ibuf t))
 
-;; Faces for the outline entries, by depth (depth 3 and deeper share one).  Containers are bold
-;; without underlining.
+;; Faces for the outline entries, by depth (depth 3 and deeper share one).  Containers are bold.
 (defface ilist-plus-face
   '((t))
   "Parent face for all Ilist entry faces."
@@ -1329,18 +1323,19 @@ The outline is built from SOURCE, or by default from the buffer shown in
 ;;; Display and toggle
 
 (defun ilist-plus--display-action ()
-  "The `display-buffer' action that shows Ilist in a window on the left frame edge."
+  "The `display-buffer' action that shows Ilist in a side window on the frame edge."
   (let* ((position (ilist-plus--opt 'position))
          (horizontal (memq position '(left right)))
          (size (ilist-plus--opt 'size))
          (cells (if (integerp size)
                     size
                   (round (* (if horizontal (frame-width) (frame-height)) size)))))
-    `((display-buffer-reuse-window display-buffer-in-direction)
-      (direction . ,position)
-      (window . root)
+    `((display-buffer-reuse-window display-buffer-in-side-window)
+      (side . ,position)
+      (slot . 0)
       (,(if horizontal 'window-width 'window-height) . ,cells)
-      (dedicated . t))))
+      (dedicated . t)
+      (window-parameters . ((no-delete-other-windows . t))))))
 
 (defun ilist-plus--open ()
   "Show the selected frame's Ilist, built from the current buffer."
@@ -1379,6 +1374,7 @@ Does nothing but print an error unless `ilist-plus-mode' is enabled."
   "Hide this Ilist's window."
   (interactive)
   (ilist-plus--close (buffer-local-value 'ilist-plus--frame (ilist-plus--current-ibuf))))
+
 ;;; Jumping to entries
 
 (defun ilist-plus--find-entry ()
@@ -1466,8 +1462,9 @@ functor like `ilist-plus-get-field-name'."
 ;;     entirely and groups flatly by raw imenu category instead.
 (defvar-local ilist-plus-sort-strategy nil)
 
-;; String for which sorting mode we're in for use in the mode-line
 (defun ilist-plus-current-sort (&optional buffer)
+  "String for which sorting mode we're using for BUFFER.
+For use in the mode-line."
   (let ((strategy (if buffer
                       (buffer-local-value 'ilist-plus-sort-strategy buffer)
                     ilist-plus-sort-strategy)))
@@ -1479,6 +1476,7 @@ functor like `ilist-plus-get-field-name'."
 ;; selected. `by-type' is handled structurally by `ilist-plus-elisp-index'
 ;; instead, and plain position order needs no override.
 (defun ilist-plus-sort-advice ()
+  "Multiplexer advice that changes the underlying imenu index."
   (when (eq ilist-plus-sort-strategy 'alphabetical)
     (setq imenu--index-alist (ilist-plus-sort-alphabetically))))
 
@@ -1487,6 +1485,7 @@ functor like `ilist-plus-get-field-name'."
 ;; elisp which just inserts all the functions as leaf nodes and java lsp/treesitter which insert
 ;; everything under categories.
 (defun ilist-plus-sort-alphabetically ()
+  "Sort the nodes alphabetically based on the top level nodes."
   (interactive)
   (let ((entries imenu--index-alist)
         (leaf-entries nil)
@@ -1504,15 +1503,13 @@ functor like `ilist-plus-get-field-name'."
                                      (lambda (left right)
                                        (string-lessp (car left) (car right))))))
 
-          (setq sorted-entries (append sorted-entries (list (cons type sorted-objects))))
-          )))
+          (setq sorted-entries (append sorted-entries (list (cons type sorted-objects)))))))
 
     ;; Sort the top level leaf entries
     (setq sorted-entries (append sorted-entries
 				 (sort leaf-entries
 				       (lambda (left right)
-					 (string-lessp (car left) (car right))))))
-    ))
+					 (string-lessp (car left) (car right))))))))
 
 ;; Interactive command to make it easy to swap how the symbols are sorted
 ;; Note: default is to go by position so we don't have to override for that.
@@ -1520,6 +1517,7 @@ functor like `ilist-plus-get-field-name'."
 ;; but pointless for treesitter, which is already grouped by type
 ;; regardless of strategy, so it's only offered there.
 (defun ilist-plus-switch-sort (strategy)
+  "Switch the sorting algorithm for the window to STRATEGY."
   (interactive
    (with-current-buffer (buffer-local-value 'ilist-plus--source (ilist-plus--current-ibuf))
      (unless (memq imenu-create-index-function '(ilist-plus-java-ts-index ilist-plus-elisp-index))
@@ -1644,6 +1642,7 @@ functor like `ilist-plus-get-field-name'."
 ;; be done after elisp loads each time.  `ilist-plus-elisp-index-by-position'
 ;; relies on these entries being present in `imenu-generic-expression'.
 (defun ilist-plus--elisp-mode-setup ()
+  "Setup the elips specific hooks and extensions."
   (add-to-list 'imenu-generic-expression
                (list "Use-package"
                      (concat "^\\s-*(use-package\\s-+\\("
@@ -1665,6 +1664,7 @@ functor like `ilist-plus-get-field-name'."
 ;; into one list, any order. RAW is `imenu--generic-function''s direct
 ;; output.
 (defun ilist-plus-elisp-flatten-raw (raw)
+  "Take an imenu index RAW and flatten it into a list."
   (let (leaves)
     (dolist (entry raw)
       (if (listp (cdr entry))
@@ -1681,6 +1681,9 @@ functor like `ilist-plus-get-field-name'."
 ;; indexed. FLOOR stops the backward walk from swallowing a line that
 ;; already belongs to the previous entry.
 (defun ilist-plus-elisp-back-over-comments (pos buffer floor)
+  "Go backwards from the current position over any comments.
+POS is the position within BUFFER. FLOOR is an absolute limit on how far
+to go back."
   (with-current-buffer buffer
     (save-excursion
       ;; Compare whole-line boundaries, not raw positions: FLOOR usually
@@ -1729,6 +1732,7 @@ functor like `ilist-plus-get-field-name'."
 ;; RAW was keyed under). Returns RAW, for the caller to bucket/nest as
 ;; before.
 (defun ilist-plus-elisp-parse-and-tag-ranges ()
+  "Internal indexing function that setsup the range table."
   (let* ((raw (imenu--generic-function imenu-generic-expression))
          (leaves (sort (ilist-plus-elisp-flatten-raw raw)
 		       (lambda (a b) (< (cdr a) (cdr b)))))
@@ -2008,9 +2012,8 @@ ENTRIES or their descendants got marked.  TRANSLATOR is as for
     any-modified))
 
 (defun ilist-plus-highlight-modified-entries (ibuf)
-  "Overlay `ilist-plus-modified-face' on the lines of the Ilist buffer
-IBUF covering a source section with a pending `diff-hl' change, via
-`ilist-plus--mark-modified'."
+  "Overlay `ilist-plus-modified-face' on the lines of the Ilist buffer.
+IBUF is the ilistplus buffer."
   (let ((src-buf (buffer-local-value 'ilist-plus--source ibuf))
         (entries (buffer-local-value 'ilist-plus--entries ibuf)))
     (when (buffer-live-p src-buf)
@@ -2046,6 +2049,7 @@ IBUF covering a source section with a pending `diff-hl' change, via
 The symbol `unsaved' when it was not touched.")
 
 (defun ilist-plus-mode--enable ()
+  "Enable ilist-plus global mode."
   (ilist-plus--modus-apply-heading-colors)
   (when (and ilist-plus-imenu-list-compat (boundp 'imenu-list-mode-line-format)
              (eq ilist-plus-mode--saved-mode-line-format 'unsaved))
